@@ -1,3 +1,8 @@
+# custom stuff
+.sesskey
+database.db
+uploads/
+
 # macOS system files
 .DS_Store
 .AppleDouble
