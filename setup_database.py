@@ -2,6 +2,7 @@ from sqlite_utils import Database
 
 # sqlite-vec needs to be installed before running this script!
 # sqlite-utils install sqlite-utils-sqlite-vec
+# UPDATE: i actually think this is done automatically when pip install requirements.txt
 
 def setup_database():
     db = Database("database.db")

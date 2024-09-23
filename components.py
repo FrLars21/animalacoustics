@@ -54,6 +54,32 @@ def ApplicationShell(*args, active_link_id, **kwargs):
         )
     )
 
+def ProcessButton(recording_id: int, status: str):
+    return Button(
+        Lucide(
+            "play" if status == "unprocessed" else
+            "refresh-cw" if status == "processed" else
+            "loader-circle",
+            size=16,
+            cls="animate-spin" if status == "processing" else ""
+        ),
+        "Reprocess" if status == "processed" else
+        "Process" if status == "unprocessed" else
+        "Processing",
+        variant="outline",
+        size="sm",
+        cls="gap-2",
+        disabled=status == "processing",
+        id=f"process-button-{recording_id}",
+        hx_post=f"/process/{recording_id}",
+        hx_vals=f'{{"recording_id":{recording_id}}}',
+        hx_target="this",
+        hx_swap="outerHTML",
+        hx_ext="sse" if status == "processing" else None,
+        sse_connect=f"/status-stream/{recording_id}" if status == "processing" else None,
+        sse_swap="message"
+    )
+
 def DropzoneUploader(dataset_id):
     return Div(id='upload-zone', cls='max-w-md')(
         Div(id='dropzone', cls='border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 transition duration-300')(

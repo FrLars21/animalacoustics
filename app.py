@@ -11,7 +11,7 @@ import asyncio
 from process_recording import process_recording
 from utils import load_audio, convert_seconds, vector_search
 
-from components import ApplicationShell, DropzoneUploader, SpectrogramPlayer
+from components import ApplicationShell, ProcessButton, DropzoneUploader, SpectrogramPlayer
 
 db = Database("database.db")
 datasets, recordings, audio_chunks = db.t.datasets, db.t.recordings, db.t.audio_chunks
@@ -21,32 +21,6 @@ app, rt = fast_app(
     pico=False,
     hdrs=(ShadHead(tw_cdn=True, theme_handle=True),Script(src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js"),),
 )
-
-def ProcessButton(recording_id: int, status: str):
-    return Button(
-        Lucide(
-            "play" if status == "unprocessed" else
-            "refresh-cw" if status == "processed" else
-            "loader-circle",
-            size=16,
-            cls="animate-spin" if status == "processing" else ""
-        ),
-        "Reprocess" if status == "processed" else
-        "Process" if status == "unprocessed" else
-        "Processing",
-        variant="outline",
-        size="sm",
-        cls="gap-2",
-        disabled=status == "processing",
-        id=f"process-button-{recording_id}",
-        hx_post=f"/process/{recording_id}",
-        hx_vals=f'{{"recording_id":{recording_id}}}',
-        hx_target="this",
-        hx_swap="outerHTML",
-        hx_ext="sse" if status == "processing" else None,
-        sse_connect=f"/status-stream/{recording_id}" if status == "processing" else None,
-        sse_swap="message"
-    )
 
 @patch
 def __ft__(self:Recording):

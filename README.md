@@ -4,8 +4,8 @@ Explore massive bioacoustic datasets.
 ## TODO (v0.1)
 
 - ~~Add foreign keys and recursive triggers on delete (also to vec_biolingual index)~~
-- Keep uploaded files in sync with recordings (e.g. delete them when a recording is deleted)
 - Bulk processing/embedding of recordings
+- Keep uploaded files in sync with recordings (e.g. delete them when a recording is deleted)
 - Test on webserver
 
 ## TODO (v0.2)
