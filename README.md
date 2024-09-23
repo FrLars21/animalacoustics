@@ -3,7 +3,7 @@ Explore massive bioacoustic datasets.
 
 ## TODO (v0.1)
 
-- Add foreign keys and recursive triggers on delete (also to vec_biolingual index)
+- ~~Add foreign keys and recursive triggers on delete (also to vec_biolingual index)~~
 - Keep uploaded files in sync with recordings (e.g. delete them when a recording is deleted)
 - Bulk processing/embedding of recordings
 - Test on webserver
@@ -21,6 +21,28 @@ Explore massive bioacoustic datasets.
 - Query by 'external' audio clip.
 - Vector arithmetic.
 - Visualize embeddings in 2D.
+
+## Installation
+
+Clone the repo and run `pip install -r requirements.txt`.
+
+Install sqlite-vec via the sqlite-utils cli:
+
+```bash
+sqlite-utils install sqlite-utils-sqlite-vec
+```
+
+Initialize the database:
+
+```bash
+python setup_database.py
+```
+
+Serve the FastHTML app via uvicorn:
+
+```bash
+python app.py
+```
 
 ## Setup sqlite-vec
 

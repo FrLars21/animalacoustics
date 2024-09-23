@@ -15,10 +15,6 @@ from components import ApplicationShell, DropzoneUploader, SpectrogramPlayer
 
 db = Database("database.db")
 datasets, recordings, audio_chunks = db.t.datasets, db.t.recordings, db.t.audio_chunks
-if datasets not in db.t:
-    datasets.create(id=int, name=str, description=str, pk='id')
-    recordings.create(id=int, dataset_id=int, filename=str, duration=int, datetime=str, status=str, pk='id')
-    audio_chunks.create(id=int, recording_id=int, start=int, end=float, pk='id')
 Dataset, Recording, AudioChunk = datasets.dataclass(), recordings.dataclass(), audio_chunks.dataclass()
 
 app, rt = fast_app(
