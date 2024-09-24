@@ -62,8 +62,6 @@ soupsieve==2.6
 soxr==0.5.0.post1
 sqlite-fts4==1.0.3
 sqlite-minutils==3.37.0.post3
-sqlite-utils==3.37
-sqlite-utils-sqlite-vec==0.1.2
 sqlite-vec==0.1.2
 starlette==0.38.5
 sympy==1.13.3
