@@ -1,20 +1,64 @@
 from datetime import datetime, timedelta
-from fasthtml.common import *
-from fastlite import *
-from shad4fast import *
-from lucide_fasthtml import Lucide
 import re
-import soundfile as sf
 import os
 import asyncio
 
-from process_recording import process_recording
-from utils import load_audio, convert_seconds, vector_search
+from fasthtml.common import *
+from shad4fast import *
+from lucide_fasthtml import Lucide
+import sqlite_vec
 
+import soundfile as sf
+from process_recording import process_recording
+from utils import load_audio, embed_str
 from components import ApplicationShell, ProcessButton, DropzoneUploader, SpectrogramPlayer
 
-db = Database("database.db")
+db = database("database.db")
+db.conn.enable_load_extension(True)
+db.conn.load_extension(sqlite_vec.loadable_path())
+db.conn.enable_load_extension(False)
+
+# print("SQLite version:", db.execute("SELECT sqlite_version()").fetchone())
+# print("vec_version:", db.execute("select vec_version()").fetchone())
+
 datasets, recordings, audio_chunks = db.t.datasets, db.t.recordings, db.t.audio_chunks
+if datasets not in db.t:
+    datasets.create(id=int, name=str, description=str, pk="id")
+    recordings.create(id=int, dataset_id=int, filename=str, duration=int, datetime=str, status=str, pk="id", foreign_keys=[("dataset_id", "datasets", "id")])
+    audio_chunks.create(id=int, recording_id=int, start=int, end=float, pk="id", foreign_keys=[("recording_id", "recordings", "id")])
+
+    db.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS vec_biolingual USING vec0(
+            audio_chunk_id INTEGER PRIMARY KEY,
+            embedding FLOAT[512]
+        )
+    """)
+
+    # Create triggers for cascading deletes
+    db.execute("""
+        CREATE TRIGGER IF NOT EXISTS delete_dataset_cascade
+        AFTER DELETE ON datasets
+        BEGIN
+            DELETE FROM recordings WHERE dataset_id = OLD.id;
+        END
+    """)
+
+    db.execute("""
+        CREATE TRIGGER IF NOT EXISTS delete_recording_cascade
+        AFTER DELETE ON recordings
+        BEGIN
+            DELETE FROM audio_chunks WHERE recording_id = OLD.id;
+        END
+    """)
+
+    db.execute("""
+        CREATE TRIGGER IF NOT EXISTS after_delete_audio_chunk 
+        AFTER DELETE ON audio_chunks
+        BEGIN
+            DELETE FROM vec_biolingual WHERE audio_chunk_id = OLD.id;
+        END
+    """)
+
 Dataset, Recording, AudioChunk = datasets.dataclass(), recordings.dataclass(), audio_chunks.dataclass()
 
 app, rt = fast_app(
@@ -253,17 +297,17 @@ async def post(request):
         duration_seconds = len(audio_file) // audio_file.samplerate
 
     # Insert into recordings table
-    try:
-        uploaded_file = recordings.insert({
-            'dataset_id': dataset_id,
-            'filename': filename,
-            'duration': duration_seconds,
-            'datetime': datetime_str,
-            'status': 'unprocessed'
-        })
-        return uploaded_file, Span(f'Uploaded', cls='text-xs font-medium text-green-600', id=statusId, hx_swap_oob="true")
-    except Exception as e:
-        return "", Span(f'Database insert error: {str(e)}', cls='text-xs font-medium text-red-600', id=statusId, hx_swap_oob="true")
+    #try:
+    uploaded_file = recordings.insert({
+        'dataset_id': dataset_id,
+        'filename': filename,
+        'duration': duration_seconds,
+        'datetime': datetime_str,
+        'status': 'unprocessed'
+    })
+    return uploaded_file, Span(f'Uploaded', cls='text-xs font-medium text-green-600', id=statusId, hx_swap_oob="true")
+    #except Exception as e:
+    #    return "", Span(f'Database insert error: {str(e)}', cls='text-xs font-medium text-red-600', id=statusId, hx_swap_oob="true")
 
 @rt('/delete-recording')
 def delete(recording_id: int):
@@ -339,9 +383,36 @@ def get():
 @rt('/search')
 def get(query:str, k:int):
     if not k: k = 5
+
+    def vector_search(query:str, k:int):
+        query_embedding = embed_str([query])
+
+        return(
+            db.q("""
+                SELECT
+                    q.audio_chunk_id,
+                    q.distance,
+                    c.recording_id,
+                    c.start,
+                    c.end,
+                    r.filename,
+                    r.datetime,
+                    d.name as dataset
+                FROM (
+                    SELECT
+                        audio_chunk_id,
+                        distance
+                    FROM vec_biolingual
+                    WHERE embedding MATCH ?
+                        and k = ?
+                ) q
+                LEFT JOIN audio_chunks c ON q.audio_chunk_id = c.id
+                LEFT JOIN recordings r ON c.recording_id = r.id
+                LEFT JOIN datasets d ON r.dataset_id = d.id
+            """, [query_embedding, k])
+        )
+
     matches = vector_search(query, k=k)
-    #print(list(matches))
-    #print("heyoa")
 
     table_rows = [TableRow(
         TableCell(i+1),

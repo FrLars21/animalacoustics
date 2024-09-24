@@ -16,8 +16,9 @@ import base64
 import time
 import os
 from math import ceil
+import numpy as np
 
-from sqlite_utils import Database
+from fastlite import *
 
 def timeit_decorator(func):
     def wrapper(*args, **kwargs):
@@ -38,37 +39,6 @@ def embed_str(str: str):
         text_embed = model.get_text_features(**inputs)
     return text_embed.numpy()[0].astype(np.float32)
 
-def vector_search(query:str, k:int):
-
-    db = Database(DB_PATH)
-
-    query_embedding = embed_str([query])
-
-    return(
-        db.query("""
-        SELECT
-            q.audio_chunk_id,
-            q.distance,
-            c.recording_id,
-            c.start,
-            c.end,
-            r.filename,
-            r.datetime,
-            d.name as dataset
-        FROM (
-            SELECT
-                audio_chunk_id,
-                distance
-            FROM vec_biolingual
-            WHERE embedding MATCH :query_embedding
-                and k = :k
-        ) q
-        LEFT JOIN audio_chunks c ON q.audio_chunk_id = c.id
-        LEFT JOIN recordings r ON c.recording_id = r.id
-        LEFT JOIN datasets d ON r.dataset_id = d.id
-        """, {"query_embedding": query_embedding, "k": k})
-    )
-
 def get_audio_duration(file_path):
     return sf.info(file_path).duration
 
@@ -76,14 +46,12 @@ def is_fully_embedded(file_path, duration):
     file_name = os.path.basename(file_path)
     expected_chunks = ceil(duration / 10)  # 10-second chunks
 
-    db = Database("database.db")
+    db = database(DB_PATH)
     actual_chunks = db.execute(
         "SELECT COUNT(*) FROM biolingual_embedding WHERE input_file = ?",
         [file_name]
     ).fetchone()[0]
     return actual_chunks in (expected_chunks, expected_chunks - 1) # allow for not perfectly divisble by 10 length
-
-import numpy as np
 
 def amplify_audio(numpy_array, factor=1.5, normalize=True):
     """

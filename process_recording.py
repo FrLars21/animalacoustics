@@ -1,12 +1,14 @@
 import os
 import time
-import torch
-from sqlite_utils import Database
-from fastcore.parallel import threaded
-import librosa
-import numpy as np
-from transformers import ClapModel, ClapProcessor
 from tqdm import tqdm
+import numpy as np
+import librosa
+import torch
+from transformers import ClapModel, ClapProcessor
+
+import sqlite_vec
+from fastcore.parallel import threaded
+from fastlite import *
 
 def load_and_preprocess_audio(file_path, target_sr=48000):
     try:
@@ -17,20 +19,17 @@ def load_and_preprocess_audio(file_path, target_sr=48000):
         print(f"Error loading audio file: {e}")
         raise
 
-def insert_embedding(recording_id, start_time, end_time, embedding):
-    db = Database("database.db")
-    #audio_chunks, vec_biolingual  = db.t.audio_chunks, db.t.vec_biolingual
+def insert_embedding(db, recording_id, start_time, end_time, embedding):
+    audio_chunks  = db.t.audio_chunks
+    new_chunk = audio_chunks.insert({"recording_id": recording_id, "start": start_time, "end": end_time})
+    #vec_biolingual.insert({"audio_chunk_id": new_chunk["id"], "embedding": embedding})
+    db.execute("insert into vec_biolingual (audio_chunk_id, embedding) values (?, ?)", [new_chunk["id"], embedding])
 
-    new_chunk = db["audio_chunks"].insert({"recording_id": recording_id, "start": start_time, "end": end_time})
-    last_pk = new_chunk.last_pk
-    #print(f"The last pk was: {last_pk}, and the last rowid was: {new_chunk.last_rowid}")
-    db["vec_biolingual"].insert({"audio_chunk_id": last_pk, "embedding": embedding})
-
-def process_audio(model, processor, recording_id, audio, sample_rate, batch_size=25):
+def process_audio(db, model, processor, recording_id, audio, sample_rate, batch_size=25):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    chunk_size = sample_rate * 10  # 10 seconds per chunk
+    chunk_size = sample_rate * 10 # 10 seconds per chunk
     chunks = [audio[i:i + chunk_size] for i in range(0, len(audio), chunk_size)]
 
     with tqdm(total=len(chunks), desc="Processing audio") as pbar:
@@ -45,19 +44,19 @@ def process_audio(model, processor, recording_id, audio, sample_rate, batch_size
                 chunk_index = i + j
                 start_time = chunk_index * 10
                 end_time = min((chunk_index + 1) * 10, len(audio) / sample_rate)
-
-                insert_embedding(recording_id, start_time, end_time, embed.cpu().numpy().astype(np.float32))
+                insert_embedding(db, recording_id, start_time, end_time, embed.cpu().numpy().astype(np.float32))
 
             pbar.update(len(batch))
 
 @threaded
-def process_recording(recording_id: int, input_folder: str = "uploads", output_folder: str = "embeddings"):
-    db = Database("database.db")
-    recordings = db["recordings"]
-    recording = recordings.get(recording_id)
-
-    if recording["status"] != "processing":
-        return
+def process_recording(recording_id: int, input_folder: str = "uploads"):
+    db = database("database.db")
+    db.conn.enable_load_extension(True)
+    db.conn.load_extension(sqlite_vec.loadable_path())
+    db.conn.enable_load_extension(False)
+    
+    recordings = db.t.recordings
+    recording = recordings[recording_id]
     
     print("Loading model...")
     try:
@@ -66,11 +65,6 @@ def process_recording(recording_id: int, input_folder: str = "uploads", output_f
     except Exception as e:
         print(f"Error loading model: {e}")
         return
-    
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
-
-    output_file = os.path.join(output_folder, f"{os.path.splitext(recording["filename"])[0]}_embeddings.tsv")
     
     audio_path = os.path.join(input_folder, recording["filename"])
     print(f"Loading and preprocessing audio file {recording['filename']}...")
@@ -84,12 +78,13 @@ def process_recording(recording_id: int, input_folder: str = "uploads", output_f
 
     print(f"Processing audio file {recording['filename']}...")
     start_time = time.time()
-    try:
-        process_audio(model, processor, recording_id, audio, sample_rate)
-    except Exception as e:
-        print(f"Failed to embed {recording['filename']}: {e}")
-        return
+    #try:
+    process_audio(db, model, processor, recording_id, audio, sample_rate)
+    #except Exception as e:
+    #    print(f"Failed to embed {recording['filename']}: {e}")
+    #    return
     print(f"Audio file {recording['filename']} embedded in {time.time() - start_time:.2f} seconds")
 
-    recordings.update(recording_id, {"status": "processed"})
+    recording["status"] = "processed"
+    recordings.update(recording)
     print("status set to processed in db :)")
