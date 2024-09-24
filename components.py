@@ -1,9 +1,8 @@
-from fastlite import *
 from fasthtml.common import *
 from shad4fast import *
 from lucide_fasthtml import Lucide
 
-db = Database("database.db")
+db = database("database.db")
 datasets = db.t.datasets
 Dataset = datasets.dataclass()
 
@@ -185,157 +184,19 @@ def AudioPlayer(fpath):
             src=fpath,
             cls="w-full"
         ),
-        Button(Lucide("play", size=16), id="playBtn"),
-        Button(Lucide("pause", size=16), id="pauseBtn"),
-        Script("""
-            const audioPlayer = document.getElementById('audioPlayer');
-            const playBtn = document.getElementById('playBtn');
-            const pauseBtn = document.getElementById('pauseBtn');
+        #Button(Lucide("play", size=16), id="playBtn"),
+        #Button(Lucide("pause", size=16), id="pauseBtn"),
+        #Script("""
+        #    const audioPlayer = document.getElementById('audioPlayer');
+        #    const playBtn = document.getElementById('playBtn');
+        #    const pauseBtn = document.getElementById('pauseBtn');
 
-            playBtn.addEventListener('click', () => {
-                audioPlayer.play();
-            });
+        #    playBtn.addEventListener('click', () => {
+        #        audioPlayer.play();
+        #    });
 
-            pauseBtn.addEventListener('click', () => {
-                audioPlayer.pause();
-            });
-        """)
-    )
-
-def SpectrogramPlayer(fpath):
-    """
-    Script(
-        const audio = document.getElementById('audio');
-        const spectrogram = document.getElementById('spectrogram');
-        const playPauseBtn = document.getElementById('playPauseBtn');
-        const seekBar = document.getElementById('seekBar');
-        const timeDisplay = document.getElementById('timeDisplay');
-
-        let isPlaying = false;
-
-        // Set up Web Audio API
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        const audioContext = new AudioContext();
-        const source = audioContext.createMediaElementSource(audio);
-            
-        // Create analyser
-        const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 2048;
-        const bufferLength = analyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-
-        source.connect(analyser);
-        analyser.connect(audioContext.destination);
-
-        // Canvas setup
-        const canvasCtx = spectrogram.getContext('2d');
-        const WIDTH = spectrogram.width;
-        const HEIGHT = spectrogram.height;
-        let drawWidth = 2; // Width of each frequency slice
-        let currentX = 0;
-
-        // Initialize canvas
-        canvasCtx.fillStyle = 'rgb(0, 0, 0)';
-        canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
-
-        // Play/Pause functionality
-        playPauseBtn.addEventListener('click', function() {
-            if (isPlaying) {
-                audio.pause();
-                playPauseBtn.textContent = 'Play';
-                isPlaying = false;
-            } else {
-                audioContext.resume(); // Required for some browsers
-                audio.play();
-                playPauseBtn.textContent = 'Pause';
-                isPlaying = true;
-                requestAnimationFrame(drawSpectrogram);
-            }
-        });
-
-        // Update seek bar as the audio plays
-        audio.addEventListener('timeupdate', function() {
-            const current = audio.currentTime;
-            const duration = audio.duration;
-            seekBar.value = (current / duration) * 100;
-            updateTimeDisplay(current, duration);
-        });
-
-        // Seek functionality
-        seekBar.addEventListener('input', function() {
-            const duration = audio.duration;
-            audio.currentTime = (seekBar.value / 100) * duration;
-        });
-
-        // Update time display
-        function updateTimeDisplay(current, duration) {
-            const currentMinutes = Math.floor(current / 60);
-            const currentSeconds = Math.floor(current % 60);
-            const durationMinutes = Math.floor(duration / 60);
-            const durationSeconds = Math.floor(duration % 60);
-            timeDisplay.textContent = 
-                `${currentMinutes}:${currentSeconds.toString().padStart(2, '0')} / ` +
-                `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`;
-        }
-
-        // Initialize time display once metadata is loaded
-        audio.addEventListener('loadedmetadata', function() {
-            updateTimeDisplay(0, audio.duration);
-        });
-
-        // Spectrogram rendering
-        function drawSpectrogram() {
-            if (!isPlaying) return;
-
-            requestAnimationFrame(drawSpectrogram);
-            analyser.getByteFrequencyData(dataArray);
-
-            // Shift the canvas to the left
-            const imageData = canvasCtx.getImageData(drawWidth, 0, WIDTH - drawWidth, HEIGHT);
-            canvasCtx.fillStyle = 'rgb(0, 0, 0)';
-            canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
-            canvasCtx.putImageData(imageData, 0, 0);
-
-            // Draw the new frequency data as the rightmost column
-            for (let y = 0; y < HEIGHT; y++) {
-                const frequencyIndex = Math.floor((y / HEIGHT) * bufferLength);
-                const value = dataArray[frequencyIndex];
-                const color = `rgb(${value}, ${value}, ${value})`; // Grayscale, can be customized
-                canvasCtx.fillStyle = color;
-                canvasCtx.fillRect(WIDTH - drawWidth, HEIGHT - y, drawWidth, 1);
-            }
-        }
-    )
-    """
-    return (
-        Div(cls='audio-player space-y-4')(
-            Canvas(id='spectrogram', width='800', height='200', cls='w-full h-48 bg-gray-900 rounded-lg'),
-            Div(cls='controls flex items-center space-x-4')(
-                Button('Play', id='playPauseBtn', cls='px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600'),
-                Input(type='range', id='seekBar', min='0', value='0', cls='flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer'),
-                Span('0:00 / 0:00', id='timeDisplay', cls='text-gray-500')
-            ),
-            Audio(id='audio', src=fpath, cls='hidden')
-        ),
-        Script("""
-            import WaveSurfer from 'https://unpkg.com/wavesurfer.js';
-            import Spectrogram from 'https://unpkg.com/wavesurfer.js/dist/plugins/spectrogram.js';
-
-            const wavesurfer = WaveSurfer.create({
-                container: '#waveform',
-                waveColor: 'violet',
-                progressColor: 'purple',
-                plugins: [
-                    Spectrogram.create({
-                        container: '#spectrogram'
-                    })
-                ]
-            });
-
-            document.getElementById('file-input').addEventListener('change', function(event) {
-                const file = event.target.files[0];
-                const url = URL.createObjectURL(file);
-                wavesurfer.load(url);
-            });
-        """)
+        #    pauseBtn.addEventListener('click', () => {
+        #        audioPlayer.pause();
+        #    });
+        #""")
     )

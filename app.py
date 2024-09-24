@@ -7,11 +7,9 @@ from fasthtml.common import *
 from shad4fast import *
 from lucide_fasthtml import Lucide
 import sqlite_vec
-
 import soundfile as sf
-from process_recording import process_recording
-from utils import load_audio, embed_str
-from components import ApplicationShell, ProcessButton, DropzoneUploader, SpectrogramPlayer
+from utils import process_recording, load_audio
+from components import ApplicationShell, ProcessButton, DropzoneUploader, AudioPlayer
 
 db = database("database.db")
 db.conn.enable_load_extension(True)
@@ -61,115 +59,17 @@ if datasets not in db.t:
 
 Dataset, Recording, AudioChunk = datasets.dataclass(), recordings.dataclass(), audio_chunks.dataclass()
 
+# Load ML models
+import torch
+import numpy as np
+from transformers import ClapModel, ClapProcessor
+model = ClapModel.from_pretrained("davidrrobinson/BioLingual")
+processor = ClapProcessor.from_pretrained("davidrrobinson/BioLingual", clean_up_tokenization_spaces=True)
+
 app, rt = fast_app(
     pico=False,
     hdrs=(ShadHead(tw_cdn=True, theme_handle=True),Script(src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js"),),
 )
-
-@patch
-def __ft__(self:Recording):
-    return TableRow(
-        TableCell(
-            Checkbox(
-                id="terms",
-                name="terms",
-                value="agree",
-                checked=False,
-            )
-        ),
-        TableCell(A(self.filename, href=f"/recording/{self.id}", cls="hover:underline")),
-        TableCell(
-            Div(Lucide("calendar-fold", size=16), datetime.fromisoformat(self.datetime).strftime("%d %b. %Y"), cls="flex gap-1 items-center"),
-            Div(Lucide("clock", size=16), datetime.fromisoformat(self.datetime).strftime("%H:%M"), cls="flex gap-1 items-center")
-        ),
-        TableCell(f"{(self.duration // 60) + (1 if self.duration % 60 > 30 else 0)} min"),
-        TableCell(ProcessButton(self.id, self.status)),
-        TableCell(
-            Button(
-                Lucide(
-                    "eraser",
-                    size=16,
-                ),
-                "Delete",
-                variant="destructive",
-                size="sm",
-                cls="gap-2",
-                disabled=self.status == "processing",
-                hx_delete=f"/delete-recording",
-                hx_vals=f'{{"recording_id":{self.id}}}',
-                hx_target="closest tr",
-                hx_swap="delete",
-                hx_confirm="Are you sure you want to delete this recording? This action cannot be undone."
-            )
-        ),
-    )
-
-@patch
-def __ft__(self:Dataset):
-    return(
-        Tabs(
-            TabsList(
-                TabsTrigger("Metadata", value="metadata"),
-                TabsTrigger("Recordings", value="recordings"),
-            ),
-            TabsContent(value="metadata")(
-                Section(cls='space-y-6 lg:max-w-2xl')(
-                    Form(hx_put="/update-dataset", target_id="dataset", cls="space-y-8")(
-                        Hidden(name="id", value=self.id),
-                        Div(
-                            Label('Dataset name', htmlFor="name"),
-                            Input(placeholder='Tofte Syd #1', id='name', name='name', value=self.name, required=True),
-                            P('This is the public display name of your dataset. Set it arbitrarily to something meaningful.', id='name-description', cls='text-[0.8rem] text-muted-foreground'),
-                            cls='space-y-2'
-                        ),
-                        Div(
-                            Label('Dataset description', htmlFor='description'),
-                            Textarea(self.description, placeholder='For example used to elaborate on recording location or for notes on sound quality.', name='description', id='description'),
-                            P('For brief notes on the dataset.', id='description-description', cls='text-[0.8rem] text-muted-foreground'),
-                            cls='space-y-2'
-                        ),
-                        Button('Update metadata', type='submit'),
-                    )
-                ),
-                Section(cls='space-y-6 mt-12 lg:max-w-2xl')(
-                    Div(cls="space-y-0.5")(
-                        H2('Delete dataset', cls='text-lg font-medium'),
-                        P('Delete the dataset and all its recordings. Warning: this action cannot be undone.', cls="text-sm text-muted-foreground"),
-                    ),
-                    Div(data_orientation='horizontal', role='none', cls='shrink-0 bg-border h-[1px] w-full lg:max-w-2xl'),
-                    Button('Delete dataset', variant="destructive", hx_delete=f"/delete-dataset", hx_vals=f'{{"dataset_id":{self.id}}}', hx_confirm="Are you sure you want to delete this dataset? This action cannot be undone."),
-                ),
-            ),
-            TabsContent(value="recordings")(
-                Section(cls='space-y-6 mt-8 lg:max-w-4xl')(
-                    Div(cls="space-y-1")(
-                        H2("Manage Recordings", cls="text-2xl font-semibold tracking-tight"),
-                        P("Upload, manage and process field recordings.", cls="text-sm text-muted-foreground"),
-                    ),
-                    Div(cls="rounded-md border")(
-                        Table(
-                            TableHeader(
-                                TableRow(TableHead(Checkbox(id="select-all", name="select-all")), *[TableHead(header) for header in ["Filename", "Starts at", "Duration", "Process", "Delete"]])
-                            ),
-                            TableBody(
-                                *[recording for recording in recordings(where="dataset_id=?", where_args=[self.id])],
-                                id="file-rows"
-                            ),
-                        ),
-                    ),
-                ),
-                Section(cls="space-y-6 mt-12 lg:max-w-2xl")(
-                    Div(cls="space-y-1")(
-                        H2("Upload Files", cls="text-2xl font-semibold tracking-tight"),
-                        P("Upload one or more audio files to add to this dataset.", cls="text-sm text-muted-foreground"),
-                    ),
-                    DropzoneUploader(self.id),
-                ),
-            ),
-            standard=True,
-            cls="w-full",
-        ),
-    )
 
 ### DATASETS ###
 
@@ -191,10 +91,71 @@ def get(dataset_id:int):
     try:
         dataset = datasets[dataset_id]
     except Exception as e:
-        dataset = P(f"Dataset with id {dataset_id} not found.")
+        return ApplicationShell(P(f"Dataset with id {dataset_id} not found."), active_link_id="sidebar-datasets-link")
 
     return ApplicationShell(
-        Div(dataset, id="dataset", cls='flex-1'),
+        Tabs(
+            TabsList(
+                TabsTrigger("Metadata", value="metadata"),
+                TabsTrigger("Recordings", value="recordings"),
+            ),
+            TabsContent(value="metadata")(
+                Section(cls='space-y-6 lg:max-w-2xl')(
+                    Form(hx_put="/update-dataset", hx_target=f"#dataset-link-{dataset.id}", cls="space-y-8")(
+                        Hidden(name="id", value=dataset.id),
+                        Div(
+                            Label('Dataset name', htmlFor="name"),
+                            Input(placeholder='Tofte Syd #1', id='name', name='name', value=dataset.name, required=True),
+                            P('This is the public display name of your dataset. Set it arbitrarily to something meaningful.', id='name-description', cls='text-[0.8rem] text-muted-foreground'),
+                            cls='space-y-2'
+                        ),
+                        Div(
+                            Label('Dataset description', htmlFor='description'),
+                            Textarea(dataset.description, placeholder='For example used to elaborate on recording location or for notes on sound quality.', name='description', id='description'),
+                            P('For brief notes on the dataset.', id='description-description', cls='text-[0.8rem] text-muted-foreground'),
+                            cls='space-y-2'
+                        ),
+                        Button('Update metadata', type='submit'),
+                    )
+                ),
+                Section(cls='space-y-6 mt-12 lg:max-w-2xl')(
+                    Div(cls="space-y-0.5")(
+                        H2('Delete dataset', cls='text-lg font-medium'),
+                        P('Delete the dataset and all its recordings. Warning: this action cannot be undone.', cls="text-sm text-muted-foreground"),
+                    ),
+                    Div(data_orientation='horizontal', role='none', cls='shrink-0 bg-border h-[1px] w-full lg:max-w-2xl'),
+                    Button('Delete dataset', variant="destructive", hx_delete=f"/delete-dataset", hx_vals=f'{{"dataset_id":{dataset.id}}}', hx_confirm="Are you sure you want to delete this dataset? This action cannot be undone."),
+                ),
+            ),
+            TabsContent(value="recordings")(
+                Section(cls='space-y-6 mt-8 lg:max-w-4xl')(
+                    Div(cls="space-y-1")(
+                        H2("Manage Recordings", cls="text-2xl font-semibold tracking-tight"),
+                        P("Upload, manage and process field recordings.", cls="text-sm text-muted-foreground"),
+                    ),
+                    Div(cls="rounded-md border")(
+                        Table(
+                            TableHeader(
+                                TableRow(TableHead(Checkbox(id="select-all", name="select-all")), *[TableHead(header) for header in ["Filename", "Starts at", "Duration", "Process", "Delete"]])
+                            ),
+                            TableBody(
+                                *[recording for recording in recordings(where="dataset_id=?", where_args=[dataset.id])],
+                                id="file-rows"
+                            ),
+                        ),
+                    ),
+                ),
+                Section(cls="space-y-6 mt-12 lg:max-w-2xl")(
+                    Div(cls="space-y-1")(
+                        H2("Upload Files", cls="text-2xl font-semibold tracking-tight"),
+                        P("Upload one or more audio files to add to this dataset.", cls="text-sm text-muted-foreground"),
+                    ),
+                    DropzoneUploader(dataset.id),
+                ),
+            ),
+            standard=True,
+            cls="w-full",
+        ),
         active_link_id=dataset_id
     )
 
@@ -206,7 +167,7 @@ def post():
 @rt('/update-dataset')
 def put(dataset: Dataset):
     new_dataset = datasets.update(dataset)
-    return new_dataset, Button(new_dataset.name, variant="secondary", cls="w-full !justify-start", id=f"dataset-link-{new_dataset.id}", hx_swap_oob="true")
+    return Button(new_dataset.name, variant="secondary", cls="w-full !justify-start", id=f"dataset-link-{new_dataset.id}", hx_swap_oob="true")
 
 @rt('/delete-dataset')
 def delete(dataset_id: int):
@@ -245,6 +206,28 @@ def serve_flac(request, fname: str):
     
     return FileResponse(file_path, media_type='audio/flac')
 
+@patch
+def __ft__(self:Recording):
+    return TableRow(
+        TableCell(Checkbox(id="terms", name="terms", value="agree", checked=False)),
+        TableCell(A(self.filename, href=f"/recording/{self.id}", cls="hover:underline")),
+        TableCell(
+            Div(Lucide("calendar-fold", size=16), datetime.fromisoformat(self.datetime).strftime("%d %b. %Y"), cls="flex gap-1 items-center"),
+            Div(Lucide("clock", size=16), datetime.fromisoformat(self.datetime).strftime("%H:%M"), cls="flex gap-1 items-center")
+        ),
+        TableCell(f"{(self.duration // 60) + (1 if self.duration % 60 > 30 else 0)} min"),
+        TableCell(ProcessButton(self.id, self.status)),
+        TableCell(
+            Button(
+                Lucide("eraser", size=16), "Delete",
+                variant="destructive", size="sm", cls="gap-2",
+                hx_delete=f"/delete-recording", hx_vals=f'{{"recording_id":{self.id}}}',
+                hx_target="closest tr", hx_swap="delete",
+                hx_confirm="Are you sure you want to delete this recording? This action cannot be undone."
+            )
+        ),
+    )
+
 @rt('/recording/{recording_id:int}')
 def get(recording_id: int):
     recording = recordings[recording_id]
@@ -257,8 +240,7 @@ def get(recording_id: int):
         Separator(cls="my-6 h-[1px]"),
         Div(
             H3(recording.filename, cls="text-xl font-semibold"),
-            #AudioPlayer(f"/uploads/{recording.filename}"),
-            SpectrogramPlayer(f"/uploads/{recording.filename}"),
+            AudioPlayer(f"/uploads/{recording.filename}"),
             cls="space-y-4"
         ),
         active_link_id=recording.dataset_id
@@ -297,21 +279,32 @@ async def post(request):
         duration_seconds = len(audio_file) // audio_file.samplerate
 
     # Insert into recordings table
-    #try:
-    uploaded_file = recordings.insert({
-        'dataset_id': dataset_id,
-        'filename': filename,
-        'duration': duration_seconds,
-        'datetime': datetime_str,
-        'status': 'unprocessed'
-    })
-    return uploaded_file, Span(f'Uploaded', cls='text-xs font-medium text-green-600', id=statusId, hx_swap_oob="true")
-    #except Exception as e:
-    #    return "", Span(f'Database insert error: {str(e)}', cls='text-xs font-medium text-red-600', id=statusId, hx_swap_oob="true")
+    try:
+        uploaded_file = recordings.insert({
+            'dataset_id': dataset_id,
+            'filename': filename,
+            'duration': duration_seconds,
+            'datetime': datetime_str,
+            'status': 'unprocessed'
+        })
+        return uploaded_file, Span(f'Uploaded', cls='text-xs font-medium text-green-600', id=statusId, hx_swap_oob="true")
+    except Exception as e:
+        if os.path.exists(file_path): os.remove(file_path)
+        return "", Span(f'Database insert error: {str(e)}', cls='text-xs font-medium text-red-600', id=statusId, hx_swap_oob="true")
 
 @rt('/delete-recording')
 def delete(recording_id: int):
-    recordings.delete(recording_id)
+    recording = recordings[recording_id]
+    file_path = os.path.join('uploads', recording.filename)
+
+    try:
+        recordings.delete(recording_id)
+    except Exception as e:
+        return e
+
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
     return ""
 
 @rt('/process/{recording_id:int}')
@@ -351,24 +344,14 @@ def get():
                 Div(cls="flex gap-2")(
                     Input(type="text", name="query", placeholder="Search recordings...", cls="w-full"),
                     Select(
-                        SelectTrigger(
-                            SelectValue(placeholder="No. results"),
-                            cls="!w-[140px] gap-2"
-                        ),
+                        SelectTrigger(SelectValue(placeholder="No. results"), cls="!w-[140px] gap-2"),
                         SelectContent(
                             SelectGroup(
                                 SelectLabel("No. results"),
-                                SelectItem("5", value=5),
-                                SelectItem("10", value=10),
-                                SelectItem("20", value=20),
-                                SelectItem("50", value=50),
-                            ),
-                            id="k",
+                                *[SelectItem(str(n), value=n) for n in (5, 10, 20, 50)],
+                            ), id="k"
                         ),
-                        standard=True,
-                        id="k",
-                        name="k",
-                        cls="shrink-0"
+                        standard=True, id="k", name="k", cls="shrink-0"
                     ),
                     Button(Lucide("search", size=16), "Search", cls="shrink-0 gap-2", id="search-button"),
                 )
@@ -383,6 +366,12 @@ def get():
 @rt('/search')
 def get(query:str, k:int):
     if not k: k = 5
+
+    def embed_str(str: str):
+        inputs = processor(text=str, return_tensors="pt", padding=True)
+        with torch.no_grad():
+            text_embed = model.get_text_features(**inputs)
+        return text_embed.numpy()[0].astype(np.float32)
 
     def vector_search(query:str, k:int):
         query_embedding = embed_str([query])

@@ -1,12 +1,4 @@
-DB_PATH = "database.db"
 AUDIO_FOLDER = "uploads/"
-
-import torch
-from transformers import ClapModel, ClapProcessor
-
-# Load embedding model
-model = ClapModel.from_pretrained("davidrrobinson/BioLingual")
-processor = ClapProcessor.from_pretrained("davidrrobinson/BioLingual")
 
 import io
 import librosa
@@ -17,38 +9,32 @@ import time
 import os
 from math import ceil
 import numpy as np
-
+import torch
 from fastlite import *
+import sqlite_vec
+from fastcore.parallel import threaded
+from tqdm import tqdm
+from transformers import ClapModel, ClapProcessor
+
+import functools
 
 def timeit_decorator(func):
+    @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        start_time = time.time()
+        start_time = time.perf_counter()
         result = func(*args, **kwargs)
-        end_time = time.time()
-        print(f"{func.__name__} took {end_time - start_time} seconds")
+        end_time = time.perf_counter()
+        print(f"{func.__name__} took {end_time - start_time:.4f} seconds")
         return result
     return wrapper
 
-@timeit_decorator
-def embed_str(str: str):
-    """
-    Embeds a str with BioLingual.
-    """
-    inputs = processor(text=str, return_tensors="pt", padding=True)
-    with torch.no_grad():
-        text_embed = model.get_text_features(**inputs)
-    return text_embed.numpy()[0].astype(np.float32)
+def is_fully_embedded(file_name, duration):
+    """Check if a recording has been fully embedded."""
+    expected_chunks = ceil(duration / 10) # 10-second chunks
 
-def get_audio_duration(file_path):
-    return sf.info(file_path).duration
-
-def is_fully_embedded(file_path, duration):
-    file_name = os.path.basename(file_path)
-    expected_chunks = ceil(duration / 10)  # 10-second chunks
-
-    db = database(DB_PATH)
+    db = database("database.db")
     actual_chunks = db.execute(
-        "SELECT COUNT(*) FROM biolingual_embedding WHERE input_file = ?",
+        "SELECT COUNT(*) FROM vec_biolingual WHERE input_file = ?",
         [file_name]
     ).fetchone()[0]
     return actual_chunks in (expected_chunks, expected_chunks - 1) # allow for not perfectly divisble by 10 length
@@ -102,6 +88,16 @@ def buffer_to_base64(buffer):
     return audio_base64
 
 @timeit_decorator
+def load_and_preprocess_audio(file_path, target_sr=48000):
+    try:
+        audio, sr = librosa.load(file_path, sr=target_sr, mono=True)
+
+        return audio, sr
+    except Exception as e:
+        print(f"Error loading audio file: {e}")
+        raise
+
+@timeit_decorator
 def retrieve_audio(file_name, start_time, duration):
     audio_clip, sr = librosa.load(path=f'{AUDIO_FOLDER}{file_name}', sr=48000, mono=True, offset=start_time, duration=duration)
     return audio_clip, sr
@@ -121,5 +117,68 @@ def load_audio(file_name, start_time, end_time):
 
     return audio_base64
 
-def convert_seconds(seconds):
-    return "%02d:%02d" % (seconds // 60, seconds % 60)
+def embed_audio(db, model, processor, recording_id, audio, sample_rate, batch_size=25):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    chunk_size = sample_rate * 10 # 10 seconds per chunk
+    chunks = [audio[i:i + chunk_size] for i in range(0, len(audio), chunk_size)]
+
+    with tqdm(total=len(chunks), desc="Processing audio") as pbar:
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            inputs = processor(audios=batch, return_tensors="pt", sampling_rate=sample_rate).to(device)
+
+            with torch.no_grad():
+                audio_embed = model.get_audio_features(**inputs)
+
+            for j, embed in enumerate(audio_embed):
+                chunk_index = i + j
+                start_time = chunk_index * 10
+                end_time = min((chunk_index + 1) * 10, len(audio) / sample_rate)
+                
+                new_chunk = db.t.audio_chunks.insert({"recording_id": recording_id, "start": start_time, "end": end_time})
+                db.execute("insert into vec_biolingual (audio_chunk_id, embedding) values (?, ?)", [new_chunk["id"], embed.cpu().numpy().astype(np.float32)])
+
+            pbar.update(len(batch))
+
+@threaded
+def process_recording(recording_id: int, input_folder: str = "uploads"):
+    db = database("database.db")
+    db.conn.enable_load_extension(True)
+    db.conn.load_extension(sqlite_vec.loadable_path())
+    db.conn.enable_load_extension(False)
+    
+    recordings = db.t.recordings
+    recording = recordings[recording_id]
+    
+    print("Loading model...")
+    try:
+        model = ClapModel.from_pretrained("davidrrobinson/BioLingual")
+        processor = ClapProcessor.from_pretrained("davidrrobinson/BioLingual", clean_up_tokenization_spaces=True)
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        return
+    
+    audio_path = os.path.join(input_folder, recording["filename"])
+    print(f"Loading and preprocessing audio file {recording['filename']}...")
+    start_time = time.time()
+    try:
+        audio, sample_rate = load_and_preprocess_audio(audio_path)
+    except Exception as e:
+        print(f"Failed to load and preprocess {recording['filename']}: {e}")
+        return
+    print(f"Audio file {recording['filename']} loaded and preprocessed in {time.time() - start_time:.2f} seconds")
+
+    print(f"Processing audio file {recording['filename']}...")
+    start_time = time.time()
+    try:
+        embed_audio(db, model, processor, recording_id, audio, sample_rate)
+    except Exception as e:
+        print(f"Failed to embed {recording['filename']}: {e}")
+        return
+    print(f"Audio file {recording['filename']} embedded in {time.time() - start_time:.2f} seconds")
+
+    recording["status"] = "processed"
+    recordings.update(recording)
+    print("status set to processed in db :)")
