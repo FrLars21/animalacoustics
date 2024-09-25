@@ -356,7 +356,7 @@ def post(recording_id: int):
 
     return ProcessButton(recording_id, recording.status)
 
-async def status_generator(recording_id: int):
+""" async def status_generator(recording_id: int):
     while True:
         recording = recordings[recording_id]
         if recording.status != "processing":
@@ -366,7 +366,7 @@ async def status_generator(recording_id: int):
 
 @rt("/status-stream/{recording_id:int}")
 async def get(recording_id: int):
-    return EventStream(status_generator(recording_id))
+    return EventStream(status_generator(recording_id)) """
 
 ## SEARCH
 

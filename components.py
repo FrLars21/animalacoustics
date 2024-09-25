@@ -74,9 +74,9 @@ def ProcessButton(recording_id: int, status: str):
         hx_vals=f'{{"recording_id":{recording_id}}}',
         hx_target="this",
         hx_swap="outerHTML",
-        hx_ext="sse" if status == "processing" else None,
-        sse_connect=f"/status-stream/{recording_id}" if status == "processing" else None,
-        sse_swap="message"
+        # hx_ext="sse" if status == "processing" else None,
+        # sse_connect=f"/status-stream/{recording_id}" if status == "processing" else None,
+        # sse_swap="message"
     )
 
 def DropzoneUploader(dataset_id):
