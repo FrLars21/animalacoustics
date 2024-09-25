@@ -300,7 +300,7 @@ async def post(request):
         return "", Span(f'File already exists', cls='text-xs font-medium text-red-600', id=statusId, hx_swap_oob="true")
 
     # Extract information and save file
-    recorder_id, date, start_time = filename[:-5].split('_')
+    recorder_id, date, start_time = filename[:-5].split('_')[:3]
     datetime_obj = datetime.strptime(f"{date}_{start_time}", "%Y%m%d_%H%M%S")
     datetime_str = datetime_obj.isoformat(timespec='seconds')
     file_path = os.path.join(config['uploads_path'], filename)
