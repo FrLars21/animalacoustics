@@ -14,6 +14,10 @@ import sqlite_vec
 import soundfile as sf
 from utils import chunk_and_embed_recording, load_audio
 from components import ApplicationShell, ProcessButton, DropzoneUploader, AudioPlayer
+from config import load_config
+
+# Load configuration
+config = load_config()
 
 db = database("database.db")
 db.conn.enable_load_extension(True)
@@ -209,9 +213,9 @@ def delete(dataset_id: int):
 ### RECORDINGS ###
 
 # Serve .flac files in the uploads directory
-@app.get("/uploads/{fname}.flac")
+@app.get("/flac/{fname}.flac")
 def serve_flac(request, fname: str):
-    file_path = f'uploads/{fname}.flac'
+    file_path = os.path.join(config['uploads_path'], f'{fname}.flac')
     file_size = os.path.getsize(file_path)
     range_header = request.headers.get('Range', None)
     
@@ -272,7 +276,7 @@ def get(recording_id: int):
         Separator(cls="my-6 h-[1px]"),
         Div(
             H3(recording.filename, cls="text-xl font-semibold"),
-            AudioPlayer(f"/uploads/{recording.filename}"),
+            AudioPlayer(f"{config['uploads_path']}/{recording.filename}"),
             cls="space-y-4"
         ),
         active_link_id=recording.dataset_id
@@ -299,7 +303,7 @@ async def post(request):
     recorder_id, date, start_time = filename[:-5].split('_')
     datetime_obj = datetime.strptime(f"{date}_{start_time}", "%Y%m%d_%H%M%S")
     datetime_str = datetime_obj.isoformat(timespec='seconds')
-    file_path = os.path.join('uploads', filename)
+    file_path = os.path.join(config['uploads_path'], filename)
     
     # Manually save the file
     content = await file.read()
@@ -327,7 +331,7 @@ async def post(request):
 @rt('/delete-recording')
 def delete(recording_id: int):
     recording = recordings[recording_id]
-    file_path = os.path.join('uploads', recording.filename)
+    file_path = os.path.join(config['uploads_path'], recording.filename)
 
     try:
         recordings.delete(recording_id)

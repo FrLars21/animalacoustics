@@ -12,6 +12,10 @@ import sqlite_vec
 import torch
 from fastlite import *
 from tqdm import tqdm
+from config import load_config
+
+# Load configuration
+config = load_config()
 
 def timeit_decorator(func):
     @functools.wraps(func)
@@ -94,7 +98,7 @@ def load_and_preprocess_audio(file_path, target_sr=48000):
 
 @timeit_decorator
 def retrieve_audio(file_name, start_time, duration):
-    audio_clip, sr = librosa.load(path=f'uploads/{file_name}', sr=48000, mono=True, offset=start_time, duration=duration)
+    audio_clip, sr = librosa.load(path=os.path.join(config['uploads_path'], file_name), sr=48000, mono=True, offset=start_time, duration=duration)
     return audio_clip, sr
 
 def load_audio(file_name, start_time, end_time):
@@ -112,7 +116,10 @@ def load_audio(file_name, start_time, end_time):
 
     return audio_base64
 
-def chunk_and_embed_recording(recording_id: int, model, processor, input_folder: str = "uploads"):
+def chunk_and_embed_recording(recording_id: int, model, processor, input_folder: str = None):
+    if input_folder is None:
+        input_folder = config['uploads_path']
+    
     db = database("database.db")
     db.conn.enable_load_extension(True)
     db.conn.load_extension(sqlite_vec.loadable_path())
