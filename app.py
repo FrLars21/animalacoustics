@@ -291,7 +291,7 @@ async def post(request):
     filename = file.filename
         
     # Validate filename format
-    if not re.match(r'^[A-Za-z0-9]+_\d{8}_\d{6}\.flac$', filename):
+    if not re.match(r'^[A-Za-z0-9]+_\d{8}_\d{6}(_.*)?\.flac$', filename):
         return "", Span(f'Invalid filename format', cls='text-xs font-medium text-red-600', id=statusId, hx_swap_oob="true")
 
     # Check if the filename already exists in the 'recordings' table
