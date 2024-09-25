@@ -98,6 +98,82 @@ def DropzoneUploader(dataset_id):
                 const fileInput = document.getElementById('file-input');
                 const fileList = document.getElementById('file-list');
                 const datasetId = document.getElementById('dataset-id').value;
+                const MAX_CONCURRENT_UPLOADS = 3;
+                let activeUploads = 0;
+                let uploadQueue = [];
+
+                function processQueue() {
+                    while (activeUploads < MAX_CONCURRENT_UPLOADS && uploadQueue.length > 0) {
+                        const {file, statusId} = uploadQueue.shift();
+                        uploadFile(file, statusId);
+                        activeUploads++;
+                    }
+                }
+
+                function handleFiles(files) {
+                    Array.from(files).filter(file => file.name.endsWith('.flac')).forEach(file => {
+                        const statusId = 'status-' + Math.random().toString(36).substr(2, 9);
+                        const fileItem = createFileItem(file, statusId, 'Queued');
+                        fileList.appendChild(fileItem);
+                        uploadQueue.push({file, statusId});
+                    });
+                    processQueue();
+                }
+
+                function uploadFile(file, statusId) {
+                    const fileItem = document.getElementById(`container-${statusId}`);
+                    updateStatus(fileItem, 'Uploading');
+
+                    htmx.on(fileItem, 'htmx:xhr:progress', function(evt) {
+                        updateProgress(fileItem, evt.detail.loaded / evt.detail.total * 100);
+                    });
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('statusId', statusId);
+                    formData.append('dataset_id', datasetId);
+
+                    htmx.ajax('POST', '/upload-recording', {
+                        target: '#file-rows',
+                        swap: 'beforeend',
+                        values: formData,
+                        source: fileItem,
+                    }).then(() => {
+                        updateProgress(fileItem, 100);
+                        activeUploads--;
+                        processQueue();
+                    }).catch(() => {
+                        updateStatus(fileItem, 'Error');
+                        activeUploads--;
+                        processQueue();
+                    });
+                }
+
+                function createFileItem(file, statusId, initialStatus) {
+                    const fileItem = document.createElement('div');
+                    fileItem.className = 'mt-4 p-4 bg-gray-50 rounded-lg';
+                    fileItem.id = `container-${statusId}`;
+                    fileItem.setAttribute('hx-encoding', 'multipart/form-data');
+                    fileItem.innerHTML = `
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="text-sm font-medium text-gray-900">${file.name}</span>
+                            <span class="text-xs font-medium text-gray-500 status" hx-swap-oob="true" id="${statusId}">${initialStatus}</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2.5">
+                            <div class="bg-blue-600 h-2.5 rounded-full progress-bar" style="width: 0%"></div>
+                        </div>
+                    `;
+                    return fileItem;
+                }
+
+                function updateProgress(fileItem, percent) {
+                    const progressBar = fileItem.querySelector('.progress-bar');
+                    progressBar.style.width = `${percent}%`;
+                }
+
+                function updateStatus(fileItem, status) {
+                    fileItem.querySelector('.status').textContent = status;
+                }
 
                 dropzone.addEventListener('click', () => fileInput.click());
                 fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
@@ -113,65 +189,6 @@ def DropzoneUploader(dataset_id):
                     dropzone.classList.remove('border-blue-500');
                     handleFiles(e.dataTransfer.files);
                 });
-               
-                function handleFiles(fileList) {
-                    const files = Array.from(fileList).filter(file => file.name.endsWith('.flac'));
-                    files.forEach(uploadFile);
-                }
-
-                function uploadFile(file) {
-                    const statusId = 'status-' + Math.random().toString(36).substr(2, 9);
-                    const fileItem = createFileItem(file, statusId);
-                    fileList.appendChild(fileItem);
-                    newFile = document.getElementById(`container-${statusId}`);
-               
-                    // add a click listener to the given div
-                    htmx.on(fileItem, 'htmx:xhr:progress', function(evt){
-                        //console.log(evt);
-                        updateProgress(fileItem, evt.detail.loaded / evt.detail.total * 100);
-                    });
-
-                    const formData = new FormData();
-                    formData.append('file', file);
-                    formData.append('statusId', statusId);
-                    formData.append('dataset_id', datasetId);
-
-                    htmx.ajax('POST', '/upload-recording', {
-                        target: '#file-rows',
-                        swap: 'beforeend',
-                        values: formData,
-                        source: fileItem,
-                    }).then(() => {
-                        //fileItem.querySelector('.status').textContent = 'Checking..';
-                        updateProgress(fileItem, 100);
-                    }).catch(() => {
-                        fileItem.querySelector('.status').textContent = 'Error';
-                    });
-                }
-
-                function createFileItem(file, statusId) {
-                    const fileItem = document.createElement('div');
-                    fileItem.className = 'mt-4 p-4 bg-gray-50 rounded-lg';
-                    fileItem.id = `container-${statusId}`;
-                    fileItem.setAttribute('hx-encoding', 'multipart/form-data');
-                    fileItem.innerHTML = `
-                        <div
-                            class="flex justify-between items-center mb-2" 
-                        ">
-                            <span class="text-sm font-medium text-gray-900">${file.name}</span>
-                            <span class="text-xs font-medium text-gray-500 status" hx-swap-oob="true" id="${statusId}">Uploading...</span>
-                        </div>
-                        <div class="w-full bg-gray-200 rounded-full h-2.5">
-                            <div class="bg-blue-600 h-2.5 rounded-full progress-bar" style="width: 0%"></div>
-                        </div>
-                    `;
-                    return fileItem;
-                }
-
-                function updateProgress(fileItem, percent) {
-                    const progressBar = fileItem.querySelector('.progress-bar');
-                    progressBar.style.width = `${percent}%`;
-                }
             });
         """)
     )
