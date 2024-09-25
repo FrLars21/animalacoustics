@@ -2,13 +2,17 @@ from datetime import datetime, timedelta
 import re
 import os
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
+import threading
+import time
 
 from fasthtml.common import *
 from shad4fast import *
 from lucide_fasthtml import Lucide
 import sqlite_vec
 import soundfile as sf
-from utils import process_recording, load_audio
+from utils import chunk_and_embed_recording, load_audio
 from components import ApplicationShell, ProcessButton, DropzoneUploader, AudioPlayer
 
 db = database("database.db")
@@ -62,9 +66,34 @@ Dataset, Recording, AudioChunk = datasets.dataclass(), recordings.dataclass(), a
 # Load ML models
 import torch
 import numpy as np
+
 from transformers import ClapModel, ClapProcessor
-model = ClapModel.from_pretrained("davidrrobinson/BioLingual")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = ClapModel.from_pretrained("davidrrobinson/BioLingual").to(device)
 processor = ClapProcessor.from_pretrained("davidrrobinson/BioLingual", clean_up_tokenization_spaces=True)
+
+# Task queue and related variables
+task_queue = Queue()
+processing_thread = None
+is_processing = False
+
+def process_queue():
+    global is_processing
+    while True:
+        if not task_queue.empty():
+            is_processing = True
+            recording_id = task_queue.get()
+            chunk_and_embed_recording(recording_id, model=model, processor=processor)
+            task_queue.task_done()
+        else:
+            is_processing = False
+            time.sleep(1)  # Wait a bit before checking the queue again
+
+def ensure_processing_thread():
+    global processing_thread
+    if processing_thread is None or not processing_thread.is_alive():
+        processing_thread = threading.Thread(target=process_queue, daemon=True)
+        processing_thread.start()
 
 app, rt = fast_app(
     pico=False,
@@ -136,7 +165,10 @@ def get(dataset_id:int):
                     Div(cls="rounded-md border")(
                         Table(
                             TableHeader(
-                                TableRow(TableHead(Checkbox(id="select-all", name="select-all")), *[TableHead(header) for header in ["Filename", "Starts at", "Duration", "Process", "Delete"]])
+                                TableRow(
+                                    #TableHead(Checkbox(id="select-all", name="select-all")), 
+                                    *[TableHead(header) for header in ["Filename", "Starts at", "Duration", "Process", "Delete"]]
+                                )
                             ),
                             TableBody(
                                 *[recording for recording in recordings(where="dataset_id=?", where_args=[dataset.id])],
@@ -209,7 +241,7 @@ def serve_flac(request, fname: str):
 @patch
 def __ft__(self:Recording):
     return TableRow(
-        TableCell(Checkbox(id="terms", name="terms", value="agree", checked=False)),
+        #TableCell(Checkbox(id="terms", name="terms", value="agree", checked=False)),
         TableCell(A(self.filename, href=f"/recording/{self.id}", cls="hover:underline")),
         TableCell(
             Div(Lucide("calendar-fold", size=16), datetime.fromisoformat(self.datetime).strftime("%d %b. %Y"), cls="flex gap-1 items-center"),
@@ -313,8 +345,10 @@ def post(recording_id: int):
     recording.status = "processing"
     recordings.update(recording)
 
-    # start processing in a new thread
-    process_recording(recording_id)
+    # add processing to task queue
+    task_queue.put(recording_id)
+    ensure_processing_thread()
+    print(f"Added recording {recording_id} to task queue")
 
     return ProcessButton(recording_id, recording.status)
 
@@ -413,5 +447,14 @@ def get(query:str, k:int):
 
     return table_rows
 
+@rt("/stats")
+def get_stats():
+    import psutil
+    process = psutil.Process()
+    return {
+        "cpu_percent": process.cpu_percent(),
+        "memory_usage": process.memory_info().rss / 1024 / 1024,  # MB
+        "thread_count": threading.active_count()
+    }
 
 serve()

@@ -1,22 +1,17 @@
-AUDIO_FOLDER = "uploads/"
-
-import io
-import librosa
-import soundfile as sf
 import base64
-
-import time
+import functools
+import io
 import os
+import time
 from math import ceil
+
+import librosa
 import numpy as np
+import soundfile as sf
+import sqlite_vec
 import torch
 from fastlite import *
-import sqlite_vec
-from fastcore.parallel import threaded
 from tqdm import tqdm
-from transformers import ClapModel, ClapProcessor
-
-import functools
 
 def timeit_decorator(func):
     @functools.wraps(func)
@@ -99,7 +94,7 @@ def load_and_preprocess_audio(file_path, target_sr=48000):
 
 @timeit_decorator
 def retrieve_audio(file_name, start_time, duration):
-    audio_clip, sr = librosa.load(path=f'{AUDIO_FOLDER}{file_name}', sr=48000, mono=True, offset=start_time, duration=duration)
+    audio_clip, sr = librosa.load(path=f'uploads/{file_name}', sr=48000, mono=True, offset=start_time, duration=duration)
     return audio_clip, sr
 
 def load_audio(file_name, start_time, end_time):
@@ -117,33 +112,7 @@ def load_audio(file_name, start_time, end_time):
 
     return audio_base64
 
-def embed_audio(db, model, processor, recording_id, audio, sample_rate, batch_size=25):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-
-    chunk_size = sample_rate * 10 # 10 seconds per chunk
-    chunks = [audio[i:i + chunk_size] for i in range(0, len(audio), chunk_size)]
-
-    with tqdm(total=len(chunks), desc="Processing audio") as pbar:
-        for i in range(0, len(chunks), batch_size):
-            batch = chunks[i:i + batch_size]
-            inputs = processor(audios=batch, return_tensors="pt", sampling_rate=sample_rate).to(device)
-
-            with torch.no_grad():
-                audio_embed = model.get_audio_features(**inputs)
-
-            for j, embed in enumerate(audio_embed):
-                chunk_index = i + j
-                start_time = chunk_index * 10
-                end_time = min((chunk_index + 1) * 10, len(audio) / sample_rate)
-                
-                new_chunk = db.t.audio_chunks.insert({"recording_id": recording_id, "start": start_time, "end": end_time})
-                db.execute("insert into vec_biolingual (audio_chunk_id, embedding) values (?, ?)", [new_chunk["id"], embed.cpu().numpy().astype(np.float32)])
-
-            pbar.update(len(batch))
-
-@threaded
-def process_recording(recording_id: int, input_folder: str = "uploads"):
+def chunk_and_embed_recording(recording_id: int, model, processor, input_folder: str = "uploads"):
     db = database("database.db")
     db.conn.enable_load_extension(True)
     db.conn.load_extension(sqlite_vec.loadable_path())
@@ -152,28 +121,40 @@ def process_recording(recording_id: int, input_folder: str = "uploads"):
     recordings = db.t.recordings
     recording = recordings[recording_id]
     
-    print("Loading model...")
-    try:
-        model = ClapModel.from_pretrained("davidrrobinson/BioLingual")
-        processor = ClapProcessor.from_pretrained("davidrrobinson/BioLingual", clean_up_tokenization_spaces=True)
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        return
-    
+    print(f"Processing recording {recording_id}: {recording['filename']}")
+
     audio_path = os.path.join(input_folder, recording["filename"])
-    print(f"Loading and preprocessing audio file {recording['filename']}...")
-    start_time = time.time()
     try:
         audio, sample_rate = load_and_preprocess_audio(audio_path)
     except Exception as e:
         print(f"Failed to load and preprocess {recording['filename']}: {e}")
         return
-    print(f"Audio file {recording['filename']} loaded and preprocessed in {time.time() - start_time:.2f} seconds")
-
-    print(f"Processing audio file {recording['filename']}...")
+    
+    print(f"Embedding audio file {recording['filename']}...")
     start_time = time.time()
     try:
-        embed_audio(db, model, processor, recording_id, audio, sample_rate)
+        device = next(model.parameters()).device  # Get the device of the model
+
+        chunk_size = sample_rate * 10  # 10 seconds per chunk
+        chunks = [audio[i:i + chunk_size] for i in range(0, len(audio), chunk_size)]
+
+        with tqdm(total=len(chunks), desc="Processing audio") as pbar:
+            for i in range(0, len(chunks), 25):  # batch_size=25
+                batch = chunks[i:i + 25]
+                inputs = processor(audios=batch, return_tensors="pt", sampling_rate=sample_rate).to(device)
+
+                with torch.no_grad():
+                    audio_embed = model.get_audio_features(**inputs)
+
+                for j, embed in enumerate(audio_embed):
+                    chunk_index = i + j
+                    start_time_chunk = chunk_index * 10
+                    end_time_chunk = min((chunk_index + 1) * 10, len(audio) / sample_rate)
+                    
+                    new_chunk = db.t.audio_chunks.insert({"recording_id": recording_id, "start": start_time_chunk, "end": end_time_chunk})
+                    db.execute("insert into vec_biolingual (audio_chunk_id, embedding) values (?, ?)", [new_chunk["id"], embed.cpu().numpy().astype(np.float32)])
+
+                pbar.update(len(batch))
     except Exception as e:
         print(f"Failed to embed {recording['filename']}: {e}")
         return
@@ -181,4 +162,4 @@ def process_recording(recording_id: int, input_folder: str = "uploads"):
 
     recording["status"] = "processed"
     recordings.update(recording)
-    print("status set to processed in db :)")
+    print(f"Recording {recording_id} processed successfully")
