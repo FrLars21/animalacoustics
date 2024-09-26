@@ -15,6 +15,7 @@ import soundfile as sf
 from utils import chunk_and_embed_recording, load_audio
 from components import ApplicationShell, ProcessButton, DropzoneUploader, AudioPlayer
 from config import load_config
+import aiofiles
 
 # Load configuration
 config = load_config()
@@ -285,37 +286,29 @@ def get(recording_id: int):
 @rt('/upload-recording')
 async def post(request):
     form = await request.form()
-    file = form.get('file')
-    statusId = form.get('statusId')
-    dataset_id = form.get('dataset_id')
+    file, status_id, dataset_id = form.get('file'), form.get('statusId'), form.get('dataset_id')
     filename = file.filename
-        
-    # Validate filename format
+
     if not re.match(r'^[A-Za-z0-9]+_\d{8}_\d{6}(_.*)?\.flac$', filename):
-        return "", Span(f'Invalid filename format', cls='text-xs font-medium text-red-600', id=statusId, hx_swap_oob="true")
+        return "", Span('Invalid filename format', cls='text-xs font-medium text-red-600', id=status_id, hx_swap_oob="true")
 
-    # Check if the filename already exists in the 'recordings' table
-    existing_file = recordings(where="filename = ?", where_args=[filename])
-    if existing_file:
-        return "", Span(f'File already exists', cls='text-xs font-medium text-red-600', id=statusId, hx_swap_oob="true")
+    if recordings(where="filename = ?", where_args=[filename]):
+        return "", Span('File already exists', cls='text-xs font-medium text-red-600', id=status_id, hx_swap_oob="true")
 
-    # Extract information and save file
-    recorder_id, date, start_time = filename[:-5].split('_')[:3]
-    datetime_obj = datetime.strptime(f"{date}_{start_time}", "%Y%m%d_%H%M%S")
-    datetime_str = datetime_obj.isoformat(timespec='seconds')
     file_path = os.path.join(config['uploads_path'], filename)
-    
-    # Manually save the file
-    content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
 
-    # Get audio duration
-    with sf.SoundFile(file_path) as audio_file:
-        duration_seconds = len(audio_file) // audio_file.samplerate
-
-    # Insert into recordings table
     try:
+        # Asynchronously save the file
+        async with aiofiles.open(file_path, 'wb') as out_file:
+            content = await file.read()  # read async
+            await out_file.write(content)  # write async
+
+        with sf.SoundFile(file_path) as audio_file:
+            duration_seconds = len(audio_file) // audio_file.samplerate
+
+        date_time_parts = filename[:-5].split('_')[1:3]
+        datetime_str = datetime.strptime('_'.join(date_time_parts), "%Y%m%d_%H%M%S").isoformat(timespec='seconds')
+
         uploaded_file = recordings.insert({
             'dataset_id': dataset_id,
             'filename': filename,
@@ -323,10 +316,10 @@ async def post(request):
             'datetime': datetime_str,
             'status': 'unprocessed'
         })
-        return uploaded_file, Span(f'Uploaded', cls='text-xs font-medium text-green-600', id=statusId, hx_swap_oob="true")
+        return uploaded_file, Span('Uploaded', cls='text-xs font-medium text-green-600', id=status_id, hx_swap_oob="true")
     except Exception as e:
         if os.path.exists(file_path): os.remove(file_path)
-        return "", Span(f'Database insert error: {str(e)}', cls='text-xs font-medium text-red-600', id=statusId, hx_swap_oob="true")
+        return "", Span(f'Error: {str(e)}', cls='text-xs font-medium text-red-600', id=status_id, hx_swap_oob="true")
 
 @rt('/delete-recording')
 def delete(recording_id: int):
