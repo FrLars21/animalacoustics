@@ -176,7 +176,7 @@ def get(dataset_id:int):
                                 )
                             ),
                             TableBody(
-                                *[recording for recording in recordings(where="dataset_id=?", where_args=[dataset.id])],
+                                *[recording for recording in recordings(where="dataset_id=?", where_args=[dataset.id], order_by="datetime ASC")],
                                 id="file-rows"
                             ),
                         ),
