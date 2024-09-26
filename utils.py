@@ -116,10 +116,7 @@ def load_audio(file_name, start_time, end_time):
 
     return audio_base64
 
-def chunk_and_embed_recording(recording_id: int, model, processor, input_folder: str = None):
-    if input_folder is None:
-        input_folder = config['uploads_path']
-    
+def chunk_and_embed_recording(recording_id: int, model, processor):
     db = database("database.db")
     db.conn.enable_load_extension(True)
     db.conn.load_extension(sqlite_vec.loadable_path())
@@ -129,8 +126,8 @@ def chunk_and_embed_recording(recording_id: int, model, processor, input_folder:
     recording = recordings[recording_id]
     
     print(f"Processing recording {recording_id}: {recording['filename']}")
+    audio_path = os.path.join(config['uploads_path'], recording["filename"])
 
-    audio_path = os.path.join(input_folder, recording["filename"])
     try:
         audio, sample_rate = load_and_preprocess_audio(audio_path)
     except Exception as e:
@@ -158,8 +155,9 @@ def chunk_and_embed_recording(recording_id: int, model, processor, input_folder:
                     start_time_chunk = chunk_index * 10
                     end_time_chunk = min((chunk_index + 1) * 10, len(audio) / sample_rate)
                     
-                    new_chunk = db.t.audio_chunks.insert({"recording_id": recording_id, "start": start_time_chunk, "end": end_time_chunk})
-                    db.execute("insert into vec_biolingual (audio_chunk_id, embedding) values (?, ?)", [new_chunk["id"], embed.cpu().numpy().astype(np.float32)])
+                    with db.conn:
+                        new_chunk = db.t.audio_chunks.insert({"recording_id": recording_id, "start": start_time_chunk, "end": end_time_chunk})
+                        db.execute("insert into vec_biolingual (audio_chunk_id, embedding) values (?, ?)", [new_chunk["id"], embed.cpu().numpy().astype(np.float32)])
 
                 pbar.update(len(batch))
     except Exception as e:
