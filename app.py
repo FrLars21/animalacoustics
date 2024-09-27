@@ -237,7 +237,7 @@ def __ft__(self:Recording):
 parent_dir_path = os.path.dirname(os.path.realpath(__file__))
 reg_re_param("audioext", "mp3|wav|ogg|flac")
 @rt("/recording/{fname:path}.{ext:audioext}")
-def get(fname:str, ext:str): return FileResponse(config['uploads_path'], fname + "." + ext)
+def get(fname:str, ext:str): return FileResponse(os.path.join(config['uploads_path'], fname.lstrip('/recording/') + "." + ext))
 
 @rt('/recording/{recording_id:int}')
 def get(recording_id: int, t:int=0):
