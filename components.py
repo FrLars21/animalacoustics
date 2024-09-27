@@ -6,20 +6,9 @@ db = database("database.db")
 datasets = db.t.datasets
 Dataset = datasets.dataclass()
 
-def ThemeToggle(variant="outline", cls=None, **kwargs):
-    return Button(
-        Lucide("sun", cls="dark:flex hidden", size=16),
-        Lucide("moon", cls="dark:hidden", size=16),
-        variant=variant,
-        size="icon",
-        cls=f"theme-toggle {cls}",
-        **kwargs,
-    )
-
 def Navbar():
     return Header(cls="container mx-auto flex justify-between items-center py-2 border-b border-border")(
-        A("AnimalAcoustics", href="/", cls="font-semibold"),
-        ThemeToggle()
+        A("AnimalAcoustics", href="/", cls="font-semibold")
     )
 
 def Sidebar(active_link_id):

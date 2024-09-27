@@ -97,12 +97,7 @@ def ensure_processing_thread():
         processing_thread = threading.Thread(target=process_queue, daemon=True)
         processing_thread.start()
 
-#app, rt = fast_app(
-#    pico=False,
-#    hdrs=(ShadHead(tw_cdn=True, theme_handle=True),Script(src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js"),),
-#)
-
-app = FastHTML(hdrs=(ShadHead(tw_cdn=True, theme_handle=True),))
+app = FastHTML(hdrs=(ShadHead(tw_cdn=True),))
 rt = app.route
 
 ### DATASETS ###
