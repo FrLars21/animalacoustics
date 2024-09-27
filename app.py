@@ -363,7 +363,7 @@ def get():
             )
         ),
         Section(
-            Table(TableHeader(TableRow(*[TableHead(col) for col in ["#", "Audio", "Date", "Time", "Dataset"]])), TableBody(id="search-results"))
+            Table(TableHeader(TableRow(*[TableHead(col) for col in ["#", "Audio", "Date", "Time", "ID", "Dataset"]])), TableBody(id="search-results"))
         ),
         active_link_id="sidebar-search-link"
     )
@@ -378,8 +378,46 @@ def get(query:str, k:int):
             text_embed = model.get_text_features(**inputs)
         return text_embed.numpy()[0].astype(np.float32)
 
-    def vector_search(query:str, k:int):
+    # Check if the query is an integer
+    if query.isdigit():
+        # If it's an integer, directly fetch the embedding for the given audio_chunk_id
+        embedding_result = db.execute("""
+            SELECT embedding
+            FROM vec_biolingual
+            WHERE audio_chunk_id = ?
+        """, [int(query)]).fetchone()
+        
+        if embedding_result:
+            # If an embedding is found, use it for the search
+            query_embedding = np.frombuffer(embedding_result[0], dtype=np.float32)
+        else:
+            # If no embedding is found, return an empty result
+            return []
+    else:
+        # If it's not an integer, embed the query string as before
         query_embedding = embed_str([query])
+
+    def vector_search(query:str, k:int):
+        # query_embedding = embed_str([query])
+
+        # Check if the query is an integer
+        if query.isdigit():
+            # If it's an integer, directly fetch the embedding for the given audio_chunk_id
+            embedding_result = db.execute("""
+                SELECT embedding
+                FROM vec_biolingual
+                WHERE audio_chunk_id = ?
+            """, [int(query)]).fetchone()
+            
+            if embedding_result:
+                # If an embedding is found, use it for the search
+                query_embedding = np.frombuffer(embedding_result[0], dtype=np.float32)
+            else:
+                # If no embedding is found, return an empty result
+                return []
+        else:
+            # If it's not an integer, embed the query string as before
+            query_embedding = embed_str([query])
 
         return(
             db.q("""
@@ -413,6 +451,7 @@ def get(query:str, k:int):
         TableCell(Audio(src=f"data:audio/flac;base64,{load_audio(r['filename'], r['start'], r['end'])}", type="audio/flac", controls=True)),
         TableCell(Div(Lucide("calendar-fold", size=16), (datetime.fromisoformat(r["datetime"])).strftime("%d %b. %Y"), cls="flex gap-1 items-center")),
         TableCell(Div(Lucide("clock", size=16), (datetime.fromisoformat(r["datetime"]) + timedelta(seconds=r["start"])).strftime("%H:%M:%S"), cls="flex gap-1 items-center")),
+        TableCell(r['audio_chunk_id']),
         TableCell(Div(r["dataset"], A("Listen in context", href=f"/recording/{r['recording_id']}?t={r['start']}", cls="text-blue-500"), cls="flex flex-col"))
     ) for i, r in enumerate(matches)]
 
