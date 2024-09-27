@@ -251,7 +251,7 @@ def get(recording_id: int, t:int=0):
         Separator(cls="my-6 h-[1px]"),
         Div(
             H3(recording.filename, cls="text-xl font-semibold"),
-            Audio(src=f"uploads/{recording.filename}#t={t}", controls=True, cls="w-full"),
+            Audio(src=f"/uploads/{recording.filename}#t={t}", controls=True, cls="w-full"),
             cls="space-y-4"
         ),
         active_link_id=recording.dataset_id
