@@ -27,7 +27,7 @@ def Sidebar(active_link_id):
         Div(cls="mb-6")(
             H2("Library", cls="mb-2 px-4 text-lg font-semibold tracking-tight"),
             Nav(cls='flex space-x-2 lg:flex-col lg:space-x-0 lg:space-y-1')(
-                A(Button(Lucide("binoculars", size=16), Span("Search", cls="truncate"), variant="secondary" if "sidebar-search-link" == active_link_id else "ghost", cls="w-full !justify-start gap-2"), href="/"),
+                A(Button(Lucide("binoculars", size=16), Span("Semantic Search", cls="truncate"), variant="secondary" if "sidebar-search-link" == active_link_id else "ghost", cls="w-full !justify-start gap-2"), href="/"),
                 A(Button(Lucide("audio-lines", size=16), Span("Datasets", cls="truncate"), variant="secondary" if "sidebar-datasets-link" == active_link_id else "ghost", cls="w-full !justify-start gap-2"), href="/datasets"),
             ),
         ),
@@ -191,29 +191,4 @@ def DropzoneUploader(dataset_id):
                 });
             });
         """)
-    )
-
-def AudioPlayer(fpath):
-    return (
-        Audio(
-            id="audioPlayer",
-            controls=True,
-            src=fpath,
-            cls="w-full"
-        ),
-        #Button(Lucide("play", size=16), id="playBtn"),
-        #Button(Lucide("pause", size=16), id="pauseBtn"),
-        #Script("""
-        #    const audioPlayer = document.getElementById('audioPlayer');
-        #    const playBtn = document.getElementById('playBtn');
-        #    const pauseBtn = document.getElementById('pauseBtn');
-
-        #    playBtn.addEventListener('click', () => {
-        #        audioPlayer.play();
-        #    });
-
-        #    pauseBtn.addEventListener('click', () => {
-        #        audioPlayer.pause();
-        #    });
-        #""")
     )

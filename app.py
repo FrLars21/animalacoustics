@@ -1,19 +1,16 @@
 from datetime import datetime, timedelta
 import re
 import os
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 import threading
 import time
-
 from fasthtml.common import *
 from shad4fast import *
 from lucide_fasthtml import Lucide
 import sqlite_vec
 import soundfile as sf
 from utils import chunk_and_embed_recording, load_audio
-from components import ApplicationShell, ProcessButton, DropzoneUploader, AudioPlayer
+from components import ApplicationShell, ProcessButton, DropzoneUploader
 from config import load_config
 import aiofiles
 
@@ -100,10 +97,13 @@ def ensure_processing_thread():
         processing_thread = threading.Thread(target=process_queue, daemon=True)
         processing_thread.start()
 
-app, rt = fast_app(
-    pico=False,
-    hdrs=(ShadHead(tw_cdn=True, theme_handle=True),Script(src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js"),),
-)
+#app, rt = fast_app(
+#    pico=False,
+#    hdrs=(ShadHead(tw_cdn=True, theme_handle=True),Script(src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js"),),
+#)
+
+app = FastHTML(hdrs=(ShadHead(tw_cdn=True, theme_handle=True),))
+rt = app.route
 
 ### DATASETS ###
 
@@ -212,37 +212,6 @@ def delete(dataset_id: int):
     return Redirect('/datasets')
 
 ### RECORDINGS ###
-
-# Serve .flac files in the uploads directory
-@app.get("/flac/{fname}.flac")
-def serve_flac(request, fname: str):
-    file_path = os.path.join(config['uploads_path'], f'{fname}.flac')
-    file_size = os.path.getsize(file_path)
-    range_header = request.headers.get('Range', None)
-    
-    if range_header:
-        byte1, byte2 = 0, None
-        m = re.search(r'(\d+)-(\d*)', range_header)
-        if m:
-            byte1, byte2 = int(m.group(1)), m.group(2)
-            if byte2:
-                byte2 = int(byte2)
-        
-        length = (byte2 or file_size - 1) - byte1 + 1
-        with open(file_path, 'rb') as f:
-            f.seek(byte1)
-            data = f.read(length)
-        
-        headers = {
-            'Content-Range': f'bytes {byte1}-{byte1 + length - 1}/{file_size}',
-            'Accept-Ranges': 'bytes',
-            'Content-Length': str(length),
-            'Content-Type': 'audio/flac',
-        }
-        return Response(data, status_code=206, headers=headers)
-    
-    return FileResponse(file_path, media_type='audio/flac')
-
 @patch
 def __ft__(self:Recording):
     return TableRow(
@@ -265,8 +234,12 @@ def __ft__(self:Recording):
         ),
     )
 
+reg_re_param("audioext", "mp3|wav|ogg|flac")
+@rt("/{fname:path}.{ext:audioext}")
+def get(fname:str, ext:str): return FileResponse(f'{fname}.{ext}')
+
 @rt('/recording/{recording_id:int}')
-def get(recording_id: int):
+def get(recording_id: int, t:int=0):
     recording = recordings[recording_id]
     return ApplicationShell(
         Div(
@@ -277,7 +250,7 @@ def get(recording_id: int):
         Separator(cls="my-6 h-[1px]"),
         Div(
             H3(recording.filename, cls="text-xl font-semibold"),
-            AudioPlayer(f"{config['uploads_path']}/{recording.filename}"),
+            Audio(src=f"/{config['uploads_path']}/{recording.filename}#t={t}", controls=True, cls="w-full"),
             cls="space-y-4"
         ),
         active_link_id=recording.dataset_id
@@ -439,7 +412,7 @@ def get(query:str, k:int):
         TableCell(Audio(src=f"data:audio/flac;base64,{load_audio(r['filename'], r['start'], r['end'])}", type="audio/flac", controls=True)),
         TableCell(Div(Lucide("calendar-fold", size=16), (datetime.fromisoformat(r["datetime"])).strftime("%d %b. %Y"), cls="flex gap-1 items-center")),
         TableCell(Div(Lucide("clock", size=16), (datetime.fromisoformat(r["datetime"]) + timedelta(seconds=r["start"])).strftime("%H:%M:%S"), cls="flex gap-1 items-center")),
-        TableCell(r["dataset"])
+        TableCell(Div(r["dataset"], A("Listen in context", href=f"/recording/{r['recording_id']}?t={r['start']}", cls="text-blue-500"), cls="flex flex-col"))
     ) for i, r in enumerate(matches)]
 
     return table_rows
