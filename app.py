@@ -10,7 +10,7 @@ from lucide_fasthtml import Lucide
 import sqlite_vec
 import soundfile as sf
 from utils import chunk_and_embed_recording, load_audio
-from components import ApplicationShell, ProcessButton, DropzoneUploader
+from components import ApplicationShell, ProcessButton, DropzoneUploader, HeadingBlock
 from config import load_config
 import aiofiles
 
@@ -105,11 +105,7 @@ rt = app.route
 @rt('/datasets')
 def get():
     return ApplicationShell(
-        Div(
-            H2("Datasets", cls="text-2xl font-bold tracking-tight"),
-            P("A dataset is a the union between a single recorder, recorded at a specific location, and a specific time period. Think of it as one SD card/battery cycle.", cls="text-muted-foreground"),
-            cls="space-y-0.5"
-        ),
+        HeadingBlock("Datasets", "A dataset is a the union between a single recorder, recorded at a specific location, and a specific time period. Think of it as one SD card/battery cycle.", cls="max-w-2xl"),
         Separator(cls="my-6 h-[1px]"),
         P("Click on a dataset in the sidebar to manage its recordings, or add a click the button to add a new one."),
         active_link_id="sidebar-datasets-link"
@@ -147,28 +143,18 @@ def get(dataset_id:int):
                         Button('Update metadata', type='submit'),
                     )
                 ),
-                Section(cls='space-y-6 mt-12 lg:max-w-2xl')(
-                    Div(cls="space-y-0.5")(
-                        H2('Delete dataset', cls='text-lg font-medium'),
-                        P('Delete the dataset and all its recordings. Warning: this action cannot be undone.', cls="text-sm text-muted-foreground"),
-                    ),
-                    Div(data_orientation='horizontal', role='none', cls='shrink-0 bg-border h-[1px] w-full lg:max-w-2xl'),
-                    Button('Delete dataset', variant="destructive", hx_delete=f"/delete-dataset", hx_vals=f'{{"dataset_id":{dataset.id}}}', hx_confirm="Are you sure you want to delete this dataset? This action cannot be undone."),
+                Section(cls="space-y-6 mt-12 lg:max-w-2xl")(
+                    HeadingBlock("Delete dataset", "Delete the dataset and all its recordings. Warning: this action cannot be undone."),
+                    Button("Delete dataset", variant="destructive", hx_delete=f"/delete-dataset", hx_vals=f'{{"dataset_id":{dataset.id}}}', hx_confirm="Are you sure you want to delete this dataset? This action cannot be undone."),
                 ),
             ),
             TabsContent(value="recordings")(
                 Section(cls='space-y-6 mt-8 lg:max-w-4xl')(
-                    Div(cls="space-y-1")(
-                        H2("Manage Recordings", cls="text-2xl font-semibold tracking-tight"),
-                        P("Upload, manage and process field recordings.", cls="text-sm text-muted-foreground"),
-                    ),
+                    HeadingBlock("Manage Recordings", "Upload, manage and process field recordings."),
                     Div(cls="rounded-md border")(
                         Table(
                             TableHeader(
-                                TableRow(
-                                    #TableHead(Checkbox(id="select-all", name="select-all")), 
-                                    *[TableHead(header) for header in ["Filename", "Starts at", "Duration", "Process", "Delete"]]
-                                )
+                                TableRow(*[TableHead(header) for header in ["Filename", "Starts at", "Duration", "Process", "Delete"]])
                             ),
                             TableBody(
                                 *[recording for recording in recordings(where="dataset_id=?", where_args=[dataset.id], order_by="datetime ASC")],
@@ -178,10 +164,7 @@ def get(dataset_id:int):
                     ),
                 ),
                 Section(cls="space-y-6 mt-12 lg:max-w-2xl")(
-                    Div(cls="space-y-1")(
-                        H2("Upload Files", cls="text-2xl font-semibold tracking-tight"),
-                        P("Upload one or more audio files to add to this dataset.", cls="text-sm text-muted-foreground"),
-                    ),
+                    HeadingBlock("Upload Files", "Upload one or more audio files to add to this dataset."),
                     DropzoneUploader(dataset.id),
                 ),
             ),
@@ -210,7 +193,6 @@ def delete(dataset_id: int):
 @patch
 def __ft__(self:Recording):
     return TableRow(
-        #TableCell(Checkbox(id="terms", name="terms", value="agree", checked=False)),
         TableCell(A(self.filename, href=f"/recording/{self.id}", cls="hover:underline")),
         TableCell(
             Div(Lucide("calendar-fold", size=16), datetime.fromisoformat(self.datetime).strftime("%d %b. %Y"), cls="flex gap-1 items-center"),
@@ -237,12 +219,8 @@ def get(fname:str, ext:str): return FileResponse(os.path.join(config['uploads_pa
 @rt('/recording/{recording_id:int}')
 def get(recording_id: int, t:int=0):
     recording = recordings[recording_id]
-    return ApplicationShell(
-        Div(
-            H2("Recording", cls="text-2xl font-bold tracking-tight"),
-            P("Listen to a full length recording.", cls="text-muted-foreground"),
-            cls="space-y-0.5"
-        ),
+    return ApplicationShell(    
+        HeadingBlock("Recording", "Listen to a full length recording.", cls="max-w-2xl"),
         Separator(cls="my-6 h-[1px]"),
         Div(
             H3(recording.filename, cls="text-xl font-semibold"),
@@ -318,54 +296,28 @@ def post(recording_id: int):
 
     return ProcessButton(recording_id, recording.status)
 
-""" async def status_generator(recording_id: int):
-    while True:
-        recording = recordings[recording_id]
-        if recording.status != "processing":
-            yield sse_message(ProcessButton(recording_id, recording.status))
-            break
-        await asyncio.sleep(5)  # Check every 5 seconds
-
-@rt("/status-stream/{recording_id:int}")
-async def get(recording_id: int):
-    return EventStream(status_generator(recording_id)) """
-
 ## SEARCH
 
 @rt('/')
 def get():
     return ApplicationShell(
-        Section(cls="space-y-2 my-8")(
-            H1("Search Recordings", cls="text-lg font-medium"),
-            P("Search for recordings by filename, date, or duration.", cls="text-sm text-muted-foreground")
-        ),
-        Section(cls="mb-8")(
-            Form(id="search-form", hx_get="/search", hx_target="#search-results", hx_disabled_elt="#search-button")(
-                Div(cls="flex gap-2")(
-                    Input(type="text", name="query", placeholder="Search recordings...", cls="w-full"),
-                    Select(
-                        SelectTrigger(SelectValue(placeholder="No. results"), cls="!w-[140px] gap-2"),
-                        SelectContent(
-                            SelectGroup(
-                                SelectLabel("No. results"),
-                                *[SelectItem(str(n), value=n) for n in (5, 10, 20, 50)],
-                            ), id="k"
-                        ),
-                        standard=True, id="k", name="k", cls="shrink-0"
-                    ),
-                    Button(Lucide("search", size=16), "Search", cls="shrink-0 gap-2", id="search-button"),
-                )
+        HeadingBlock("Semantic Search", "What are you looking for?", cls="mb-8"),
+        Section(cls="max-w-xl mb-8")(
+            Form(id="search-form", cls="flex gap-2", hx_get="/search", hx_target="#search-results", hx_disabled_elt="#search-button")(
+                Input(type="text", name="query", placeholder="Search recordings...", cls="w-full"),
+                Button(Lucide("search", size=16), "Search", cls="shrink-0 gap-2", id="search-button"),
             )
         ),
         Section(
-            Table(TableHeader(TableRow(*[TableHead(col) for col in ["#", "Audio", "Date", "Time", "ID", "Dataset"]])), TableBody(id="search-results"))
+            Table(TableHeader(TableRow(*[TableHead(col) for col in ["#", "Audio", "Date", "Time", "ID", "Dataset"]])), TableBody(id="search-results")),
+            Button("Load more", id="load-more-btn", cls="hidden", hx_swap_oob="true")
         ),
         active_link_id="sidebar-search-link"
     )
 
 @rt('/search')
-def get(query:str, k:int):
-    if not k: k = 5
+def get(query:str, page:int=1):
+    per_page = 5
 
     def embed_str(str: str):
         inputs = processor(text=str, return_tensors="pt", padding=True)
@@ -392,28 +344,8 @@ def get(query:str, k:int):
         # If it's not an integer, embed the query string as before
         query_embedding = embed_str([query])
 
-    def vector_search(query:str, k:int):
-        # query_embedding = embed_str([query])
-
-        # Check if the query is an integer
-        if query.isdigit():
-            # If it's an integer, directly fetch the embedding for the given audio_chunk_id
-            embedding_result = db.execute("""
-                SELECT embedding
-                FROM vec_biolingual
-                WHERE audio_chunk_id = ?
-            """, [int(query)]).fetchone()
-            
-            if embedding_result:
-                # If an embedding is found, use it for the search
-                query_embedding = np.frombuffer(embedding_result[0], dtype=np.float32)
-            else:
-                # If no embedding is found, return an empty result
-                return []
-        else:
-            # If it's not an integer, embed the query string as before
-            query_embedding = embed_str([query])
-
+    def vector_search(query:str, k:int, page:int, per_page:int):
+        offset = (page - 1) * per_page
         return(
             db.q("""
                 SELECT
@@ -436,10 +368,12 @@ def get(query:str, k:int):
                 LEFT JOIN audio_chunks c ON q.audio_chunk_id = c.id
                 LEFT JOIN recordings r ON c.recording_id = r.id
                 LEFT JOIN datasets d ON r.dataset_id = d.id
-            """, [query_embedding, k])
+                LIMIT ? OFFSET ?
+            """, [query_embedding, k, per_page, offset])
         )
 
-    matches = vector_search(query, k=k)
+    k = page * per_page
+    matches = vector_search(query, k=k, page=page, per_page=per_page)
 
     table_rows = [TableRow(
         TableCell(i+1),
@@ -448,18 +382,19 @@ def get(query:str, k:int):
         TableCell(Div(Lucide("clock", size=16), (datetime.fromisoformat(r["datetime"]) + timedelta(seconds=r["start"])).strftime("%H:%M:%S"), cls="flex gap-1 items-center")),
         TableCell(r['audio_chunk_id']),
         TableCell(Div(r["dataset"], A("Listen in context", href=f"/recording/{r['recording_id']}?t={r['start']}", cls="text-blue-500"), cls="flex flex-col"))
-    ) for i, r in enumerate(matches)]
+    ) for i, r in enumerate(matches, start=(page-1)*per_page)]
 
-    return table_rows
+    load_more_button = Button(
+        "Load more",
+        id="load-more-btn",
+        cls="mt-2",
+        hx_get=f"/search?query={query}&page={page + 1}",
+        hx_target="#search-results",
+        hx_disabled_elt="#load-more-btn",
+        hx_swap="beforeend",
+        hx_swap_oob="true"
+    )
 
-@rt("/stats")
-def get_stats():
-    import psutil
-    process = psutil.Process()
-    return {
-        "cpu_percent": process.cpu_percent(),
-        "memory_usage": process.memory_info().rss / 1024 / 1024,  # MB
-        "thread_count": threading.active_count()
-    }
+    return table_rows, load_more_button
 
 serve()

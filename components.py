@@ -6,39 +6,47 @@ db = database("database.db")
 datasets = db.t.datasets
 Dataset = datasets.dataclass()
 
+def HeadingBlock(title: str, subtitle: str, **kwargs):
+    cls_value = kwargs.pop('cls', '') + ' space-y-1'
+    return Div(cls=cls_value, **kwargs)(
+        H2(title, cls="text-2xl font-semibold tracking-tight"),
+        P(subtitle, cls="text-sm text-muted-foreground")
+    )
+
 def Navbar():
-    return Header(cls="container mx-auto flex justify-between items-center py-2 border-b border-border")(
+    return Header(cls="container mx-auto flex justify-between items-center py-2 border-b h-10")(
         A("AnimalAcoustics", href="/", cls="font-semibold")
     )
 
 def Sidebar(active_link_id):
-    return Aside(cls='lg:w-1/5')(
-        Div(cls="mb-6")(
+    return Aside(cls="pb-16 pt-4 space-y-4 border-r self-start sticky h-screen overflow-y-auto top-0")(
+        Header(cls="px-3 mb-8")(
+            H2("🦜", Span("AnimalAcoustics", cls="ml-2 bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-yellow-500"), cls="px-4 text-lg font-bold tracking-tight"),
+        ),
+        Section(cls="px-3 py-2")(
             H2("Library", cls="mb-2 px-4 text-lg font-semibold tracking-tight"),
-            Nav(cls='flex space-x-2 lg:flex-col lg:space-x-0 lg:space-y-1')(
+            Nav(cls='flex flex-col space-y-1')(
                 A(Button(Lucide("binoculars", size=16), Span("Semantic Search", cls="truncate"), variant="secondary" if "sidebar-search-link" == active_link_id else "ghost", cls="w-full !justify-start gap-2"), href="/"),
                 A(Button(Lucide("audio-lines", size=16), Span("Datasets", cls="truncate"), variant="secondary" if "sidebar-datasets-link" == active_link_id else "ghost", cls="w-full !justify-start gap-2"), href="/datasets"),
             ),
         ),
-        Div(cls="mb-2")(
+        Section(cls="px-3 py-2")(
             H2("Datasets", cls="mb-2 px-4 text-lg font-semibold tracking-tight"),
-            Nav(cls='flex space-x-2 lg:flex-col lg:space-x-0 lg:space-y-1')(
+            Nav(cls="flex space-x-2 lg:flex-col lg:space-x-0 lg:space-y-1")(
                 *[A(Button(Lucide("list-music", size=16), Span(ds.name, cls="truncate"), variant="secondary" if ds.id == active_link_id else "ghost", cls="!justify-start gap-2 w-full", id=f"dataset-link-{ds.id}", title=ds.name), href=f"/datasets/{ds.id}") for ds in datasets()],
             ),
+            Button(Lucide("circle-plus", size=16), 'New dataset', variant="outline", size="sm", cls="gap-2 mt-2 mx-4", hx_post="/new-dataset"),
         ),
-        Button(Lucide("circle-plus", size=16), 'New dataset', variant="outline", size="sm", cls="gap-2", hx_post="/new-dataset"),
     )
 
-def ApplicationShell(*args, active_link_id, **kwargs):
+def ApplicationShell(*args, active_link_id):
     return (
-        Navbar(), 
-        Div(cls="container mx-auto my-8")(
-            Div(cls="flex flex-col space-y-8 lg:flex-row lg:space-x-12 lg:space-y-0")(
-                Sidebar(active_link_id=active_link_id),
-                Div(cls="flex-1")(
-                    *args
-                ),
-            ),
+        #Navbar(),
+        Div(cls="grid lg:grid-cols-5")(
+            Sidebar(active_link_id=active_link_id),
+            Div(cls="col-span-4")(
+                Div(cls="h-full px-4 py-6 lg:px-8")(*args)
+            )
         )
     )
 
