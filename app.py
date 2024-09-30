@@ -301,7 +301,20 @@ def post(recording_id: int):
 @rt('/')
 def get():
     return ApplicationShell(
-        HeadingBlock("Semantic Search", "What are you looking for?", cls="mb-8"),
+        Div(cls="space-y-4 mb-6")(
+            H2("Semantic Search", cls="text-2xl font-semibold tracking-tight"),
+            Div(cls="text-sm text-muted-foreground space-y-2")(
+                P("Find 10-second audio chunks from your archive that are most similar to either:"),
+                Ul(cls="list-disc list-inside")(
+                    Li(
+                        "A natural language description/keywords of the audio you're looking for ",
+                        A("(see this link for inspiration)", href="https://huggingface.co/datasets/davidrrobinson/AnimalSpeak", target="_blank", cls="underline")
+                    ),
+                    Li("An audio clip of the sound you want to find (tag the audio chunk id the search query with @id, e.g. @123),"),
+                    Li("The mean embedding of n audio clips of the sound you want to find (tag more than one audio chunks, e.g: @123 @456).")
+                )
+            )
+        ),
         Section(cls="max-w-xl mb-8")(
             Form(id="search-form", cls="flex gap-2", hx_get="/search", hx_target="#search-results", hx_disabled_elt="#search-button")(
                 Input(type="text", name="query", placeholder="Search recordings...", cls="w-full"),
@@ -316,7 +329,7 @@ def get():
     )
 
 @rt('/search')
-def get(query:str, page:int=1):
+def get(query:str, page:int=1, pooling:str="mean"):
     per_page = 5
 
     def embed_str(str: str):
@@ -335,8 +348,18 @@ def get(query:str, page:int=1):
         embeddings = db.t.vec_biolingual(where="audio_chunk_id IN (" + chunk_ids_str + ")")
         
         if embeddings:
-            # Perform mean pooling of the embeddings
-            query_embedding = np.mean([np.frombuffer(emb['embedding'], dtype=np.float32) for emb in embeddings], axis=0)
+            # Convert embeddings to numpy arrays
+            embedding_arrays = [np.frombuffer(emb['embedding'], dtype=np.float32) for emb in embeddings]
+            
+            # Perform pooling based on the specified method
+            if pooling == "mean":
+                query_embedding = np.mean(embedding_arrays, axis=0)
+            elif pooling == "max":
+                query_embedding = np.max(embedding_arrays, axis=0)
+            elif pooling == "median":
+                query_embedding = np.median(embedding_arrays, axis=0)
+            else:
+                raise ValueError(f"Unknown pooling method: {pooling}")
         else:
             # If no embeddings found, return an empty result
             return []
@@ -396,5 +419,186 @@ def get(query:str, page:int=1):
     )
 
     return table_rows, load_more_button
+
+@rt('/admin')
+def get():
+    return ApplicationShell(
+        HeadingBlock("Admin Dashboard", "Validate data and monitor the application"),
+        Separator(cls="my-6"),
+        Section(cls="space-y-8")(
+            Card(
+                CardHeader(
+                    CardTitle("Data Validation"),
+                    CardDescription("Run checks to validate the integrity of your data")
+                ),
+                CardContent(
+                    Div(cls="space-y-8")(
+                        Div(cls="flex justify-between items-center")(
+                            HeadingBlock("Audio Chunks Check", "Check for correct amount of audio chunks per recording"),
+                            Button("Run Check", hx_post="/admin/check-audio-chunks", hx_target="#audio-chunks-result")
+                        ),
+                        Div(id="audio-chunks-result", cls="mt-2"),
+                        Div(cls="flex justify-between items-center")(
+                            HeadingBlock("Vec Biolingual Rows Check", "Check for correct amount of vec_biolingual rows per recording"),
+                            Button("Run Check", hx_post="/admin/check-vec-biolingual", hx_target="#vec-biolingual-result")
+                        ),
+                        Div(id="vec-biolingual-result", cls="mt-2"),
+                        Div(cls="flex justify-between items-center")(
+                            HeadingBlock("Orphaned Audio Files Check", "Check for audio files on disc without a database 'recordings' row"),
+                            Button("Run Check", hx_post="/admin/check-orphaned-files", hx_target="#orphaned-files-result")
+                        ),
+                        Div(id="orphaned-files-result", cls="mt-2"),
+                        Div(cls="flex justify-between items-center")(
+                            HeadingBlock("Missing Audio Files Check", "Check for database 'recordings' rows without a file on disc"),
+                            Button("Run Check", hx_post="/admin/check-missing-files", hx_target="#missing-files-result")
+                        ),
+                        Div(id="missing-files-result", cls="mt-2"),
+                    )
+                ),
+                standard=True
+            ),
+            Card(
+                CardHeader(
+                    CardTitle("App Monitoring"),
+                    CardDescription("Monitor application performance and status")
+                ),
+                CardContent(
+                    P("TBD: Monitoring features here.")
+                ),
+                standard=True
+            )
+        ),
+        active_link_id="sidebar-admin-link"
+    )
+
+@rt('/admin/check-audio-chunks')
+def post():
+    result = check_audio_chunks()
+    
+    if result['issues']:
+        issue_table = Table(
+            TableHeader(
+                TableRow(
+                    TableHead("ID"),
+                    TableHead("Filename"),
+                    TableHead("Duration"),
+                    TableHead("Actual Chunks"),
+                    TableHead("Expected Chunks")
+                )
+            ),
+            TableBody(
+                *[TableRow(
+                    TableCell(issue['id']),
+                    TableCell(issue['filename']),
+                    TableCell(f"{issue['duration']} seconds"),
+                    TableCell(issue['chunk_count']),
+                    TableCell(issue['expected_chunks'])
+                ) for issue in result['issues']]
+            ),
+            cls="w-full mt-4"
+        )
+        
+        return Alert(
+            AlertTitle(result['title']),
+            AlertDescription(
+                Div(
+                    P(result['description']),
+                    issue_table
+                )
+            ),
+            variant="destructive"
+        )
+    else:
+        return Alert(
+            AlertTitle(result['title']),
+            AlertDescription(result['description']),
+            variant="default"
+        )
+
+@rt('/admin/check-vec-biolingual')
+def post():
+    result = check_vec_biolingual_rows()
+    return Alert(
+        AlertTitle(result['title']),
+        AlertDescription(result['description']),
+        variant="destructive" if result['issues'] else "default"
+    )
+
+@rt('/admin/check-orphaned-files')
+def post():
+    result = check_orphaned_audio_files()
+    return Alert(
+        AlertTitle(result['title']),
+        AlertDescription(result['description']),
+        variant="destructive" if result['issues'] else "default"
+    )
+
+@rt('/admin/check-missing-files')
+def post():
+    result = check_missing_audio_files()
+    return Alert(
+        AlertTitle(result['title']),
+        AlertDescription(result['description']),
+        variant="destructive" if result['issues'] else "default"
+    )
+
+def check_audio_chunks():
+    issues = db.q("""
+        SELECT r.id, r.filename, r.duration, COUNT(ac.id) as chunk_count, 
+               CEIL(r.duration / 10.0) as expected_chunks
+        FROM recordings r
+        LEFT JOIN audio_chunks ac ON r.id = ac.recording_id
+        GROUP BY r.id
+        HAVING chunk_count != expected_chunks
+    """)
+    
+    return {
+        'title': "Audio Chunks Check",
+        'description': f"Found {len(issues)} recordings with incorrect number of audio chunks." if issues else "All recordings have the correct number of audio chunks.",
+        'issues': issues
+    }
+
+def check_vec_biolingual_rows():
+    issues = db.q("""
+        SELECT r.id, r.filename, COUNT(vb.audio_chunk_id) as vec_count, 
+               COUNT(ac.id) as chunk_count
+        FROM recordings r
+        LEFT JOIN audio_chunks ac ON r.id = ac.recording_id
+        LEFT JOIN vec_biolingual vb ON ac.id = vb.audio_chunk_id
+        GROUP BY r.id
+        HAVING vec_count != chunk_count
+    """)
+    
+    return {
+        'title': "Vec Biolingual Rows Check",
+        'description': f"Found {len(issues)} recordings with mismatched vec_biolingual rows." if issues else "All recordings have the correct number of vec_biolingual rows.",
+        'issues': issues
+    }
+
+def check_orphaned_audio_files():
+    config = load_config()
+    uploads_path = config['uploads_path']
+    db_files = set(r.filename for r in db.t.recordings())
+    disk_files = set(f for f in os.listdir(uploads_path) if f.endswith('.flac'))
+    orphaned_files = disk_files - db_files
+    
+    return {
+        'title': "Orphaned Audio Files Check",
+        'description': f"Found {len(orphaned_files)} audio files on disk without corresponding database entries." if orphaned_files else "No orphaned audio files found.",
+        'issues': list(orphaned_files)
+    }
+
+def check_missing_audio_files():
+    config = load_config()
+    uploads_path = config['uploads_path']
+    db_files = set(r.filename for r in db.t.recordings())
+    disk_files = set(f for f in os.listdir(uploads_path) if f.endswith('.flac'))
+    missing_files = db_files - disk_files
+    
+    return {
+        'title': "Missing Audio Files Check",
+        'description': f"Found {len(missing_files)} database entries without corresponding audio files on disk." if missing_files else "No missing audio files found.",
+        'issues': list(missing_files)
+    }
 
 serve()

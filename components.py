@@ -28,6 +28,7 @@ def Sidebar(active_link_id):
             Nav(cls='flex flex-col space-y-1')(
                 A(Button(Lucide("binoculars", size=16), Span("Semantic Search", cls="truncate"), variant="secondary" if "sidebar-search-link" == active_link_id else "ghost", cls="w-full !justify-start gap-2"), href="/"),
                 A(Button(Lucide("audio-lines", size=16), Span("Datasets", cls="truncate"), variant="secondary" if "sidebar-datasets-link" == active_link_id else "ghost", cls="w-full !justify-start gap-2"), href="/datasets"),
+                A(Button(Lucide("settings", size=16), Span("Admin", cls="truncate"), variant="secondary" if "sidebar-admin-link" == active_link_id else "ghost", cls="w-full !justify-start gap-2"), href="/admin"),
             ),
         ),
         Section(cls="px-3 py-2")(
