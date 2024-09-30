@@ -325,26 +325,26 @@ def get(query:str, page:int=1):
             text_embed = model.get_text_features(**inputs)
         return text_embed.numpy()[0].astype(np.float32)
 
-    # Check if the query is an integer
-    if query.isdigit():
-        # If it's an integer, directly fetch the embedding for the given audio_chunk_id
-        embedding_result = db.execute("""
-            SELECT embedding
-            FROM vec_biolingual
-            WHERE audio_chunk_id = ?
-        """, [int(query)]).fetchone()
+    # Check if the query contains audio chunk IDs
+    chunk_ids = re.findall(r'@(\d+)', query)
+    
+    if chunk_ids:
+        # Join the chunk_ids into a comma-separated string
+        chunk_ids_str = ','.join(chunk_ids)
+        # Fetch embeddings for all mentioned audio chunk IDs
+        embeddings = db.t.vec_biolingual(where="audio_chunk_id IN (" + chunk_ids_str + ")")
         
-        if embedding_result:
-            # If an embedding is found, use it for the search
-            query_embedding = np.frombuffer(embedding_result[0], dtype=np.float32)
+        if embeddings:
+            # Perform mean pooling of the embeddings
+            query_embedding = np.mean([np.frombuffer(emb['embedding'], dtype=np.float32) for emb in embeddings], axis=0)
         else:
-            # If no embedding is found, return an empty result
+            # If no embeddings found, return an empty result
             return []
     else:
-        # If it's not an integer, embed the query string as before
+        # If it's not audio chunk IDs, embed the query string as before
         query_embedding = embed_str([query])
 
-    def vector_search(query:str, k:int, page:int, per_page:int):
+    def vector_search(qemb:np.array, k:int, page:int, per_page:int):
         offset = (page - 1) * per_page
         return(
             db.q("""
@@ -369,11 +369,11 @@ def get(query:str, page:int=1):
                 LEFT JOIN recordings r ON c.recording_id = r.id
                 LEFT JOIN datasets d ON r.dataset_id = d.id
                 LIMIT ? OFFSET ?
-            """, [query_embedding, k, per_page, offset])
+            """, [qemb, k, per_page, offset])
         )
 
     k = page * per_page
-    matches = vector_search(query, k=k, page=page, per_page=per_page)
+    matches = vector_search(query_embedding, k=k, page=page, per_page=per_page)
 
     table_rows = [TableRow(
         TableCell(i+1),
