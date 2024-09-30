@@ -422,6 +422,13 @@ def get(query:str, page:int=1, pooling:str="mean"):
 
 @rt('/admin')
 def get():
+    checks = [
+        ("Audio Chunks", "Check for correct amount of audio chunks per recording"),
+        ("Vec Biolingual Rows", "Check for correct amount of vec_biolingual rows per recording"),
+        ("Orphaned Audio Files", "Check for audio files on disc without a database 'recordings' row"),
+        ("Missing Audio Files", "Check for database 'recordings' rows without a file on disc"),
+    ]
+    
     return ApplicationShell(
         HeadingBlock("Admin Dashboard", "Validate data and monitor the application"),
         Separator(cls="my-6"),
@@ -433,26 +440,13 @@ def get():
                 ),
                 CardContent(
                     Div(cls="space-y-8")(
-                        Div(cls="flex justify-between items-center")(
-                            HeadingBlock("Audio Chunks Check", "Check for correct amount of audio chunks per recording"),
-                            Button("Run Check", hx_post="/admin/check-audio-chunks", hx_target="#audio-chunks-result")
-                        ),
-                        Div(id="audio-chunks-result", cls="mt-2"),
-                        Div(cls="flex justify-between items-center")(
-                            HeadingBlock("Vec Biolingual Rows Check", "Check for correct amount of vec_biolingual rows per recording"),
-                            Button("Run Check", hx_post="/admin/check-vec-biolingual", hx_target="#vec-biolingual-result")
-                        ),
-                        Div(id="vec-biolingual-result", cls="mt-2"),
-                        Div(cls="flex justify-between items-center")(
-                            HeadingBlock("Orphaned Audio Files Check", "Check for audio files on disc without a database 'recordings' row"),
-                            Button("Run Check", hx_post="/admin/check-orphaned-files", hx_target="#orphaned-files-result")
-                        ),
-                        Div(id="orphaned-files-result", cls="mt-2"),
-                        Div(cls="flex justify-between items-center")(
-                            HeadingBlock("Missing Audio Files Check", "Check for database 'recordings' rows without a file on disc"),
-                            Button("Run Check", hx_post="/admin/check-missing-files", hx_target="#missing-files-result")
-                        ),
-                        Div(id="missing-files-result", cls="mt-2"),
+                        *[Div(cls="space-y-2")(
+                            Div(cls="flex justify-between items-center")(
+                                HeadingBlock(title, description),
+                                Button("Run Check", hx_post=f"/admin/check-{title.lower().replace(' ', '-')}", hx_target=f"#{title.lower().replace(' ', '-')}-result")
+                            ),
+                            Div(id=f"{title.lower().replace(' ', '-')}-result", cls="mt-2")
+                        ) for title, description in checks]
                     )
                 ),
                 standard=True
@@ -462,85 +456,54 @@ def get():
                     CardTitle("App Monitoring"),
                     CardDescription("Monitor application performance and status")
                 ),
-                CardContent(
-                    P("TBD: Monitoring features here.")
-                ),
+                CardContent(P("TBD: Monitoring features here.")),
                 standard=True
             )
         ),
         active_link_id="sidebar-admin-link"
     )
 
-@rt('/admin/check-audio-chunks')
-def post():
-    result = check_audio_chunks()
-    
+def create_issue_table(issues, headers):
+    return Table(
+        TableHeader(TableRow(*[TableHead(header) for header in headers])),
+        TableBody(*[
+            TableRow(*[
+                TableCell(str(issue[key]) if isinstance(issue, dict) else str(issue))
+                for key in (issue.keys() if isinstance(issue, dict) else headers)
+            ]) for issue in issues
+        ]),
+        cls="w-full mt-4"
+    )
+
+def create_alert(result, headers):
     if result['issues']:
-        issue_table = Table(
-            TableHeader(
-                TableRow(
-                    TableHead("ID"),
-                    TableHead("Filename"),
-                    TableHead("Duration"),
-                    TableHead("Actual Chunks"),
-                    TableHead("Expected Chunks")
-                )
-            ),
-            TableBody(
-                *[TableRow(
-                    TableCell(issue['id']),
-                    TableCell(issue['filename']),
-                    TableCell(f"{issue['duration']} seconds"),
-                    TableCell(issue['chunk_count']),
-                    TableCell(issue['expected_chunks'])
-                ) for issue in result['issues']]
-            ),
-            cls="w-full mt-4"
-        )
-        
+        issue_table = create_issue_table(result['issues'], headers)
         return Alert(
             AlertTitle(result['title']),
-            AlertDescription(
-                Div(
-                    P(result['description']),
-                    issue_table
-                )
-            ),
+            AlertDescription(Div(P(result['description']), issue_table)),
             variant="destructive"
         )
-    else:
-        return Alert(
-            AlertTitle(result['title']),
-            AlertDescription(result['description']),
-            variant="default"
-        )
-
-@rt('/admin/check-vec-biolingual')
-def post():
-    result = check_vec_biolingual_rows()
     return Alert(
         AlertTitle(result['title']),
         AlertDescription(result['description']),
-        variant="destructive" if result['issues'] else "default"
+        variant="default"
     )
 
-@rt('/admin/check-orphaned-files')
+@rt('/admin/check-audio-chunks')
 def post():
-    result = check_orphaned_audio_files()
-    return Alert(
-        AlertTitle(result['title']),
-        AlertDescription(result['description']),
-        variant="destructive" if result['issues'] else "default"
-    )
+    return create_alert(check_audio_chunks(), ["ID", "Filename", "Duration", "Actual Chunks", "Expected Chunks"])
 
-@rt('/admin/check-missing-files')
+@rt('/admin/check-vec-biolingual-rows')
 def post():
-    result = check_missing_audio_files()
-    return Alert(
-        AlertTitle(result['title']),
-        AlertDescription(result['description']),
-        variant="destructive" if result['issues'] else "default"
-    )
+    return create_alert(check_vec_biolingual_rows(), ["ID", "Filename", "Vec Count", "Chunk Count"])
+
+@rt('/admin/check-orphaned-audio-files')
+def post():
+    return create_alert(check_orphaned_audio_files(), ["Filename"])
+
+@rt('/admin/check-missing-audio-files')
+def post():
+    return create_alert(check_missing_audio_files(), ["Filename"])
 
 def check_audio_chunks():
     issues = db.q("""
@@ -551,7 +514,6 @@ def check_audio_chunks():
         GROUP BY r.id
         HAVING chunk_count != expected_chunks
     """)
-    
     return {
         'title': "Audio Chunks Check",
         'description': f"Found {len(issues)} recordings with incorrect number of audio chunks." if issues else "All recordings have the correct number of audio chunks.",
@@ -568,7 +530,6 @@ def check_vec_biolingual_rows():
         GROUP BY r.id
         HAVING vec_count != chunk_count
     """)
-    
     return {
         'title': "Vec Biolingual Rows Check",
         'description': f"Found {len(issues)} recordings with mismatched vec_biolingual rows." if issues else "All recordings have the correct number of vec_biolingual rows.",
@@ -581,11 +542,10 @@ def check_orphaned_audio_files():
     db_files = set(r.filename for r in db.t.recordings())
     disk_files = set(f for f in os.listdir(uploads_path) if f.endswith('.flac'))
     orphaned_files = disk_files - db_files
-    
     return {
         'title': "Orphaned Audio Files Check",
         'description': f"Found {len(orphaned_files)} audio files on disk without corresponding database entries." if orphaned_files else "No orphaned audio files found.",
-        'issues': list(orphaned_files)
+        'issues': [{'Filename': f} for f in orphaned_files]
     }
 
 def check_missing_audio_files():
@@ -594,11 +554,10 @@ def check_missing_audio_files():
     db_files = set(r.filename for r in db.t.recordings())
     disk_files = set(f for f in os.listdir(uploads_path) if f.endswith('.flac'))
     missing_files = db_files - disk_files
-    
     return {
         'title': "Missing Audio Files Check",
         'description': f"Found {len(missing_files)} database entries without corresponding audio files on disk." if missing_files else "No missing audio files found.",
-        'issues': list(missing_files)
+        'issues': [{'Filename': f} for f in missing_files]
     }
 
 serve()
