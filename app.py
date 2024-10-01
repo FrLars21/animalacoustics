@@ -601,7 +601,7 @@ def check_audio_chunks():
         FROM recordings r
         LEFT JOIN audio_chunks ac ON r.id = ac.recording_id
         GROUP BY r.id
-        HAVING chunk_count != expected_chunks
+        HAVING chunk_count != expected_chunks AND chunk_count > 0
     """)
     return {
         'title': "Audio Chunks Check",
