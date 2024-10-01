@@ -589,7 +589,10 @@ def post():
 def check_audio_chunks():
     issues = db.q("""
         SELECT r.id, r.filename, r.duration, COUNT(ac.id) as chunk_count, 
-               CEIL(r.duration / 10.0) as expected_chunks
+               CASE 
+                   WHEN r.duration % 10 = 0 THEN r.duration / 10
+                   ELSE CEIL(r.duration / 10.0)
+               END as expected_chunks
         FROM recordings r
         LEFT JOIN audio_chunks ac ON r.id = ac.recording_id
         GROUP BY r.id
