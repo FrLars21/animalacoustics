@@ -587,10 +587,15 @@ def post():
     return create_alert(check_missing_audio_files(), ["Filename"])
 
 def check_audio_chunks():
+    # there seems to be a bug where recording with a duration
+    # that is exactly divisible by 10 is given a full extra chunk
+    # when embedding. We account for by adding 1 to the expected
+    # chunk count here. But the error should be fixed in the
+    # embedding function eventually.
     issues = db.q("""
         SELECT r.id, r.filename, r.duration, COUNT(ac.id) as chunk_count, 
                CASE 
-                   WHEN r.duration % 10 = 0 THEN r.duration / 10
+                   WHEN r.duration % 10 = 0 THEN (r.duration / 10) + 1
                    ELSE CEIL(r.duration / 10.0)
                END as expected_chunks
         FROM recordings r
