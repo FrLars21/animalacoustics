@@ -117,16 +117,26 @@ def load_audio(file_name, start_time, end_time):
     return audio_base64
 
 def chunk_and_embed_recording(recording_id: int, model, processor):
-    db = database("database.db")
-    db.conn.enable_load_extension(True)
-    db.conn.load_extension(sqlite_vec.loadable_path())
-    db.conn.enable_load_extension(False)
-    
-    recordings = db.t.recordings
-    recording = recordings[recording_id]
+
+    try:
+        db = database("database.db")
+        db.conn.enable_load_extension(True)
+        db.conn.load_extension(sqlite_vec.loadable_path())
+        db.conn.enable_load_extension(False)
+        
+        recordings = db.t.recordings
+        recording = recordings[recording_id]
+    except Exception as e:
+        print(f"Failed to reach recording '{recording_id}'in DB: {e}")
+        return
     
     print(f"Processing recording {recording_id}: {recording['filename']}")
     audio_path = os.path.join(config['uploads_path'], recording["filename"])
+    
+    # Delete existing audio chunks for this recording
+    with db.conn:
+        deleted_rows = db.execute("DELETE FROM audio_chunks WHERE recording_id = ?", [recording_id]).rowcount
+        print(f"Deleted {deleted_rows} existing audio chunks for recording {recording_id}")
 
     try:
         audio, sample_rate = load_and_preprocess_audio(audio_path)
