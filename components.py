@@ -72,9 +72,6 @@ def ProcessButton(recording_id: int, status: str):
         hx_vals=f'{{"recording_id":{recording_id}}}',
         hx_target="this",
         hx_swap="outerHTML",
-        # hx_ext="sse" if status == "processing" else None,
-        # sse_connect=f"/status-stream/{recording_id}" if status == "processing" else None,
-        # sse_swap="message"
     )
 
 def DropzoneUploader(dataset_id):
@@ -189,4 +186,32 @@ def DropzoneUploader(dataset_id):
                 });
             });
         """)
+    )
+
+# Dropdown menu
+def DropdownMenuLabel(text: str):
+    return Div(text, cls="px-2 py-1.5 text-sm font-semibold")
+
+def DropdownMenuItem(*items, icon: str = None, text_color: str = "inherit", **kwargs):
+    return Button(
+        variant="ghost", 
+        size="sm", 
+        cls=f"!flex !justify-start w-full gap-2 !px-2 !font-normal text-{text_color}",
+        **kwargs
+    )(
+        Lucide(icon, size=14) if icon else None,
+        *items
+    )
+
+def DropdownMenu(*items, id, trigger_icon: str = "ellipsis-vertical", trigger_variant: str = "secondary"):
+    menu_id = f"dropdown-menu-{id}"
+    trigger_id = f"dropdown-trigger-{id}"
+    
+    return (
+        Div(
+            Button(Lucide(trigger_icon, size=16), variant=trigger_variant, size="icon", id=trigger_id),
+            Div(id=menu_id, style="width: max-content; position: absolute; top: 0; left: 0; display: none; border-radius: 0.375rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); background-color: white; border: 1px solid #e5e7eb; padding: 0.25rem; gap: 0.5rem;")(
+                *items
+            )
+        )
     )

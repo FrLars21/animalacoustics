@@ -10,7 +10,7 @@ from lucide_fasthtml import Lucide
 import sqlite_vec
 import soundfile as sf
 from utils import chunk_and_embed_recording, load_audio
-from components import ApplicationShell, ProcessButton, DropzoneUploader, HeadingBlock
+from components import ApplicationShell, ProcessButton, DropzoneUploader, HeadingBlock, DropdownMenu, DropdownMenuItem, DropdownMenuLabel
 from config import load_config
 import aiofiles
 
@@ -97,7 +97,77 @@ def ensure_processing_thread():
         processing_thread = threading.Thread(target=process_queue, daemon=True)
         processing_thread.start()
 
-app = FastHTML(hdrs=(ShadHead(tw_cdn=True),))
+floating_ui_script = Script("""
+    import {autoUpdate, computePosition, offset} from 'https://cdn.jsdelivr.net/npm/@floating-ui/dom@1.6.10/+esm';
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const triggers = document.querySelectorAll('[id^="dropdown-trigger-"]');
+        const menus = document.querySelectorAll('[id^="dropdown-menu-"]');
+
+        // Move all menus to the body
+        menus.forEach(menu => {
+            document.body.appendChild(menu);
+        });
+
+        let activeMenu = null;
+        let cleanup = null;
+
+        function showMenu(triggerId) {
+            const menuId = triggerId.replace('trigger', 'menu');
+            const trigger = document.getElementById(triggerId);
+            const menu = document.getElementById(menuId);
+
+            if (activeMenu) {
+                hideMenu();
+            }
+
+            menu.style.display = 'block';
+            activeMenu = menu;
+
+            function updatePosition() {
+                computePosition(trigger, menu, {
+                    placement: 'bottom-end',
+                    middleware: [offset(5)]
+                }).then(({x, y}) => {
+                    Object.assign(menu.style, {
+                        left: `${x}px`,
+                        top: `${y}px`,
+                    });
+                });
+            }
+
+            cleanup = autoUpdate(trigger, menu, updatePosition);
+        }
+
+        function hideMenu() {
+            if (activeMenu) {
+                activeMenu.style.display = 'none';
+                if (cleanup) {
+                    cleanup();
+                    cleanup = null;
+                }
+                activeMenu = null;
+            }
+        }
+
+        triggers.forEach(trigger => {
+            trigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const triggerId = trigger.id;
+                if (activeMenu && activeMenu.id === triggerId.replace('trigger', 'menu')) {
+                    hideMenu();
+                } else {
+                    showMenu(triggerId);
+                }
+            });
+        });
+
+        // Close menu when clicking outside
+        document.addEventListener('click', hideMenu);
+    });
+""", type="module")
+
+app = FastHTML(hdrs=(ShadHead(tw_cdn=True),floating_ui_script,))
 rt = app.route
 
 ### DATASETS ###
@@ -154,7 +224,7 @@ def get(dataset_id:int):
                     Div(cls="rounded-md border")(
                         Table(
                             TableHeader(
-                                TableRow(*[TableHead(header) for header in ["Filename", "Starts at", "Duration", "Process", "Delete"]])
+                                TableRow(*[TableHead(header) for header in ["Filename", "Starts at", "Duration", "Process", ""]])
                             ),
                             TableBody(
                                 *[recording for recording in recordings(where="dataset_id=?", where_args=[dataset.id], order_by="datetime ASC")],
@@ -192,7 +262,7 @@ def delete(dataset_id: int):
 ### RECORDINGS ###
 @patch
 def __ft__(self:Recording):
-    return TableRow(
+    return TableRow(id=f"recording-row-{self.id}")(
         TableCell(A(self.filename, href=f"/recording/{self.id}", cls="hover:underline")),
         TableCell(
             Div(Lucide("calendar-fold", size=16), datetime.fromisoformat(self.datetime).strftime("%d %b. %Y"), cls="flex gap-1 items-center"),
@@ -201,14 +271,30 @@ def __ft__(self:Recording):
         TableCell(f"{(self.duration // 60) + (1 if self.duration % 60 > 30 else 0)} min"),
         TableCell(ProcessButton(self.id, self.status)),
         TableCell(
-            Button(
-                Lucide("eraser", size=16), "Delete",
-                variant="destructive", size="sm", cls="gap-2",
-                hx_delete=f"/delete-recording", hx_vals=f'{{"recording_id":{self.id}}}',
-                hx_target="closest tr", hx_swap="delete",
-                hx_confirm="Are you sure you want to delete this recording? This action cannot be undone."
+            DropdownMenu(
+                DropdownMenuLabel("Actions"),
+                Separator(cls="-mx-1 my-1 h-px bg-muted"),
+                DropdownMenuItem(A("Listen to recording", href=f"/recording/{self.id}", target="_blank"), icon="external-link"),
+                Separator(cls="-mx-1 my-1 h-px bg-muted"),
+                DropdownMenuItem(
+                    "Process again", 
+                    icon="repeat-2",
+                    disabled=True
+                ),
+                Separator(cls="-mx-1 my-1 h-px bg-muted"),
+                DropdownMenuItem(
+                    "Delete recording", 
+                    icon="trash", 
+                    text_color="destructive",
+                    hx_delete=f"/delete-recording", 
+                    hx_vals=f'{{"recording_id":{self.id}}}',
+                    hx_target=f"#recording-row-{self.id}", 
+                    hx_swap="delete",
+                    hx_confirm="Are you sure you want to delete this recording? This action cannot be undone."
+                ),
+                id=self.id
             )
-        ),
+        )
     )
 
 parent_dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -433,24 +519,19 @@ def get():
         HeadingBlock("Admin Dashboard", "Validate data and monitor the application"),
         Separator(cls="my-6"),
         Section(cls="space-y-8")(
-            Card(
+            *[Card(
                 CardHeader(
-                    CardTitle("Data Validation"),
-                    CardDescription("Run checks to validate the integrity of your data")
+                    CardTitle(title),
+                    CardDescription(description)
                 ),
                 CardContent(
-                    Div(cls="space-y-8")(
-                        *[Div(cls="space-y-2")(
-                            Div(cls="flex justify-between items-center")(
-                                HeadingBlock(title, description),
-                                Button("Run Check", hx_post=f"/admin/check-{title.lower().replace(' ', '-')}", hx_target=f"#{title.lower().replace(' ', '-')}-result")
-                            ),
-                            Div(id=f"{title.lower().replace(' ', '-')}-result", cls="mt-2")
-                        ) for title, description in checks]
+                    Div(cls="space-y-4")(
+                        Button("Run Check", hx_post=f"/admin/check-{title.lower().replace(' ', '-')}", hx_target=f"#{title.lower().replace(' ', '-')}-result"),
+                        Div(id=f"{title.lower().replace(' ', '-')}-result", cls="mt-2")
                     )
                 ),
                 standard=True
-            ),
+            ) for title, description in checks],
             Card(
                 CardHeader(
                     CardTitle("App Monitoring"),
